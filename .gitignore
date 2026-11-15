@@ -1,0 +1,18 @@
+# Angular / Node
+node_modules/
+dist/
+.angular/
+
+# Environment variables
+.env
+
+# Go
+*.exe
+*.out
+
+# Logs
+*.log
+
+# Operating system
+.DS_Store
+Thumbs.db
