@@ -15,6 +15,19 @@ services:
     volumes:
       - cassandra_data:/var/lib/cassandra
 
+  files-service:
+    build: ./backend/files-service
+    container_name: google-drive-files-service
+    environment:
+      FILES_SERVICE_PORT: ${FILES_SERVICE_PORT:-8082}
+      MONGO_URI: ${MONGO_URI:-mongodb://mongodb:27017}
+      FILES_DB_NAME: ${FILES_DB_NAME:-files_db}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
+    ports:
+      - "${FILES_SERVICE_PORT:-8082}:${FILES_SERVICE_PORT:-8082}"
+    depends_on:
+      - mongodb
+
 volumes:
   mongodb_data:
   cassandra_data:
