@@ -15,6 +15,20 @@ services:
     volumes:
       - cassandra_data:/var/lib/cassandra
 
+  users-service:
+    build:
+      context: ./backend/users-service
+      dockerfile: Dockerfile
+    container_name: google-drive-users-service
+    ports:
+      - "${USERS_SERVICE_PORT}:8081"
+    environment:
+      PORT: 8081
+      MONGO_URI: mongodb://mongodb:27017
+      MONGO_DB: ${MONGO_DB}
+    depends_on:
+      - mongodb
+
   api-gateway:
     build:
       context: ./backend/api-gateway
