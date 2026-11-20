@@ -15,6 +15,35 @@ services:
     volumes:
       - cassandra_data:/var/lib/cassandra
 
+  api-gateway:
+    build:
+      context: ./backend/api-gateway
+      dockerfile: Dockerfile
+    container_name: google-drive-api-gateway
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    environment:
+      GATEWAY_PORT: ${GATEWAY_PORT}
+      USERS_SERVICE_URL: http://users-service:8081
+      FILES_SERVICE_URL: http://files-service:8082
+      NOTIFICATIONS_SERVICE_URL: http://notifications-service:8083
+  
+ 
+  notifications-service:
+    build:
+      context: ./backend/notifications-service
+      dockerfile: Dockerfile
+    container_name: google-drive-notifications-service
+    ports:
+      - "${NOTIFICATIONS_SERVICE_PORT}:${NOTIFICATIONS_SERVICE_PORT}"
+    environment:
+      NOTIFICATIONS_SERVICE_PORT: ${NOTIFICATIONS_SERVICE_PORT}
+      CASSANDRA_HOST: cassandra
+      CASSANDRA_PORT: ${CASSANDRA_PORT}
+    depends_on:
+      - cassandra
+
+
 volumes:
   mongodb_data:
   cassandra_data:
