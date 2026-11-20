@@ -44,6 +44,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.Handle("/register", RegistrationHandler(users))
 
 	log.Printf("Users servis radi na portu %s; MongoDB baza: %s", port, mongoDatabase)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
