@@ -1,0 +1,137 @@
+<div class="page-header">
+  <nav class="breadcrumbs" aria-label="Putanja">
+    <a routerLink="/" class="crumb" [class.current]="!contents()?.breadcrumbs?.length">Moj disk</a>
+    @for (crumb of contents()?.breadcrumbs ?? []; track crumb.id; let last = $last) {
+      <app-icon name="chevron" class="crumb-sep" />
+      <a [routerLink]="['/folders', crumb.id]" class="crumb" [class.current]="last">{{ crumb.name }}</a>
+    }
+  </nav>
+
+  <div class="view-toggle" role="group" aria-label="Prikaz">
+    <button type="button" [class.on]="view() === 'list'" (click)="view.set('list')" title="Lista">
+      <app-icon name="list" />
+    </button>
+    <button type="button" [class.on]="view() === 'grid'" (click)="view.set('grid')" title="Mreža">
+      <app-icon name="grid" />
+    </button>
+  </div>
+</div>
+
+@if (loading() && !contents()) {
+  <div class="state"><div class="spinner"></div></div>
+} @else if (loadError()) {
+  <div class="state">
+    <p class="state-title">Ne mogu da učitam sadržaj</p>
+    <p class="muted">{{ loadError() }}</p>
+    <button class="btn-outline" type="button" (click)="retry()">Pokušaj ponovo</button>
+  </div>
+} @else if (isEmpty()) {
+  <div class="state">
+    <app-icon name="folder" [size]="96" class="empty-icon" />
+    <p class="state-title">Ovaj folder je prazan</p>
+    <p class="muted">Napravite folder ili (uskoro) otpremite datoteku.</p>
+    <button class="btn-outline" type="button" (click)="newFolder(); $event.stopPropagation()">
+      <app-icon name="new-folder" /> Novi folder
+    </button>
+  </div>
+} @else if (contents(); as c) {
+  @if (view() === 'grid') {
+    @if (c.folders.length) {
+      <h3 class="section-title">Folderi</h3>
+      <div class="folder-grid">
+        @for (folder of c.folders; track folder.id) {
+          <div
+            class="folder-tile"
+            tabindex="0"
+            [class.selected]="selectedId() === folder.id"
+            (click)="select(folder, $event)"
+            (dblclick)="open(folder)"
+            (keydown.enter)="open(folder)"
+            (contextmenu)="openMenu(folder, $event)"
+            [title]="folder.name"
+          >
+            <app-icon name="folder" class="folder-icon" />
+            <span class="tile-name">{{ folder.name }}</span>
+            <button class="icon-btn" type="button" (click)="openMenu(folder, $event)" aria-label="Opcije">
+              <app-icon name="more" />
+            </button>
+          </div>
+        }
+      </div>
+    }
+
+    @if (c.files.length) {
+      <h3 class="section-title">Datoteke</h3>
+      <div class="file-grid">
+        @for (file of c.files; track file.id) {
+          <div class="file-card" [title]="file.name">
+            <div class="file-preview"><app-icon [name]="fileIcon(file)" [size]="56" /></div>
+            <div class="file-card-name"><app-icon [name]="fileIcon(file)" [size]="16" /> {{ file.name }}</div>
+          </div>
+        }
+      </div>
+    }
+  } @else {
+    <table class="item-table">
+      <thead>
+        <tr>
+          <th>Naziv</th>
+          <th>Vlasnik</th>
+          <th>Poslednja izmena</th>
+          <th>Veličina</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (folder of c.folders; track folder.id) {
+          <tr
+            tabindex="0"
+            [class.selected]="selectedId() === folder.id"
+            (click)="select(folder, $event)"
+            (dblclick)="open(folder)"
+            (keydown.enter)="open(folder)"
+            (contextmenu)="openMenu(folder, $event)"
+          >
+            <td class="name-cell"><app-icon name="folder" class="folder-icon" /> {{ folder.name }}</td>
+            <td>ja</td>
+            <td>{{ folder.updatedAt | date: 'd. MMM y. HH:mm' }}</td>
+            <td>—</td>
+            <td class="actions-cell">
+              <button class="icon-btn" type="button" (click)="openMenu(folder, $event)" aria-label="Opcije">
+                <app-icon name="more" />
+              </button>
+            </td>
+          </tr>
+        }
+        @for (file of c.files; track file.id) {
+          <tr>
+            <td class="name-cell"><app-icon [name]="fileIcon(file)" /> {{ file.name }}</td>
+            <td>ja</td>
+            <td>{{ file.updatedAt | date: 'd. MMM y. HH:mm' }}</td>
+            <td>{{ file.size | fileSize }}</td>
+            <td></td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+}
+
+@if (menu(); as m) {
+  <div class="menu context-menu" [style.left.px]="m.x" [style.top.px]="m.y" (click)="$event.stopPropagation()">
+    <button type="button" (click)="open(m.folder)"><app-icon name="folder" /> Otvori</button>
+    <button type="button" (click)="startRename(m.folder)"><app-icon name="edit" /> Preimenuj</button>
+  </div>
+}
+
+@if (renaming(); as folder) {
+  <app-name-dialog
+    title="Preimenuj"
+    confirmLabel="U redu"
+    [initialValue]="folder.name"
+    [busy]="renameBusy()"
+    [serverError]="renameError()"
+    (confirmed)="confirmRename($event)"
+    (cancelled)="renaming.set(null)"
+  />
+}
