@@ -17,7 +17,7 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-func LoginHandler(users *UserRepository, otpValidity time.Duration) http.Handler {
+func LoginHandler(users *UserRepository, otpValidity time.Duration, mailer EmailSender) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -67,8 +67,13 @@ func LoginHandler(users *UserRepository, otpValidity time.Duration) http.Handler
 			return
 		}
 
-		log.Printf("OTP za prijavu korisnika %s: %s (važi do %s)", user.Email, otp, expiresAt.Format(time.RFC3339))
+		body := "Zdravo " + user.FirstName + ",\n\nVaš jednokratni kod za prijavu je: " + otp + "\n\nKod važi do " + expiresAt.Format(time.RFC3339) + "."
+		if err := mailer.Send(user.Email, "Kod za prijavu", body); err != nil {
+			log.Printf("Slanje OTP email poruke korisniku %q nije uspelo: %v", user.Email, err)
+			http.Error(w, "Slanje OTP koda nije uspelo", http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"message": "OTP kod je generisan"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "OTP kod je poslat na email adresu"})
 	})
 }
