@@ -16,6 +16,7 @@ import (
 	"files-service/internal/middleware"
 	"files-service/internal/repository"
 	"files-service/internal/service"
+	"files-service/internal/storage"
 )
 
 func main() {
@@ -35,13 +36,21 @@ func main() {
 	}
 	cancel()
 
+	fileStore, err := storage.NewLocal(cfg.StoragePath)
+	if err != nil {
+		log.Fatalf("skladiste za datoteke: %v", err)
+	}
+	log.Printf("sadrzaj datoteka se cuva u %q", cfg.StoragePath)
+
 	folderRepo := repository.NewFolderRepository(database, cfg.DBTimeout)
 	fileRepo := repository.NewFileRepository(database, cfg.DBTimeout)
 	folderSvc := service.NewFolderService(folderRepo, fileRepo)
+	fileSvc := service.NewFileService(folderRepo, fileRepo, fileStore)
 
 	// Rute koje zahtevaju korisnika
 	api := http.NewServeMux()
 	handler.NewFolderHandler(folderSvc).Register(api)
+	handler.NewFileHandler(fileSvc, cfg.MaxUploadSize).Register(api)
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {

@@ -133,18 +133,7 @@ func (s *FolderService) RenameFolder(ctx context.Context, ownerID, folderID, new
 // getOwnedFolder - T-13: centralno mesto za proveru vlasnistva nad folderom.
 // Kada se uvede deljenje (1.10), ovde ce se dodati i provera kod Sharing servisa.
 func (s *FolderService) getOwnedFolder(ctx context.Context, ownerID, folderID string) (*model.Folder, error) {
-	id, err := bson.ObjectIDFromHex(folderID)
-	if err != nil {
-		return nil, ErrInvalidID
-	}
-	folder, err := s.folders.FindByID(ctx, id)
-	if err != nil {
-		return nil, mapRepoErr(err)
-	}
-	if folder.OwnerID != ownerID {
-		return nil, ErrForbidden
-	}
-	return folder, nil
+	return ownedFolder(ctx, s.folders, ownerID, folderID)
 }
 
 func (s *FolderService) breadcrumbs(ctx context.Context, folder *model.Folder) ([]model.Breadcrumb, error) {

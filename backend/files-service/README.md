@@ -1,7 +1,7 @@
 # Files servis
 
 Mikroservis za metapodatke o folderima i datotekama (Go + MongoDB).
-Pokriva deo prvog sprinta: **T-10, T-11, T-12, T-13, T-20**.
+Pokriva: **T-10, T-11, T-12, T-13, T-20** (folderi) i **T-23** (otpremanje datoteke).
 
 ## Struktura
 
@@ -53,6 +53,8 @@ go test ./...
 | `FILES_DB_NAME` | `files_db` | ime baze |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:4200` | dozvoljeni origin-i (zarezom odvojeni) |
 | `DB_TIMEOUT` | `5s` | timeout jedne operacije nad bazom |
+| `STORAGE_PATH` | `./data/files` | gde se cuva sadrzaj datoteka |
+| `MAX_UPLOAD_SIZE` | `52428800` (50 MB) | najveci dozvoljeni upload, u bajtovima |
 
 ## Endpointi
 
@@ -67,6 +69,7 @@ izvuci ID korisnika i postaviti ovaj header.
 | `GET` | `/folders/root/contents` | sadrzaj korenskog foldera (T-20) |
 | `GET` | `/folders/{id}/contents` | sadrzaj foldera + breadcrumbs (T-20) |
 | `PATCH` | `/folders/{id}` | preimenovanje foldera (1.6) |
+| `POST` | `/files` | otpremanje datoteke (1.5, T-23) |
 
 ### Primeri
 
@@ -90,6 +93,36 @@ curl -X PATCH localhost:8082/folders/<ID> \
   -d '{"name":"SOA projekat"}'
 ```
 
+### Otpremanje datoteke
+
+`POST /files` prima `multipart/form-data` sa poljima:
+
+| Polje | Obavezno | Opis |
+|---|---|---|
+| `file` | da | sama datoteka |
+| `folderId` | ne | ID foldera; prazno ili izostavljeno znaci koren |
+
+```bash
+# u koren
+curl -X POST localhost:8082/files \
+  -H 'X-User-ID: dev-user-1' \
+  -F 'file=@beleske.txt'
+
+# u odredjeni folder
+curl -X POST localhost:8082/files \
+  -H 'X-User-ID: dev-user-1' \
+  -F 'file=@slika.png' -F 'folderId=<ID foldera>'
+```
+
+Kako to radi iznutra:
+
+1. ID dokumenta se generise unapred, jer od njega nastaje `storageKey`
+2. sadrzaj se upisuje u storage (lokalni disk, kasnije MinIO)
+3. metapodaci se upisuju u Mongo
+
+Ako treci korak pukne, sadrzaj se brise iz storage-a - da ne ostanu bajtovi na
+koje nijedan dokument ne pokazuje. Ako pukne drugi korak, u bazi nema nicega.
+
 ### Status kodovi
 
 | Kod | Kada |
@@ -98,7 +131,8 @@ curl -X PATCH localhost:8082/folders/<ID> \
 | `401` | nedostaje `X-User-ID` |
 | `403` | folder pripada drugom korisniku (T-13) |
 | `404` | folder ne postoji |
-| `409` | folder sa istim nazivom vec postoji u istom roditelju |
+| `409` | folder ili datoteka sa istim nazivom vec postoji na istom mestu |
+| `413` | datoteka je veca od `MAX_UPLOAD_SIZE` |
 
 ## Model podataka (2.1)
 
