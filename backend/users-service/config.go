@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"time"
 )
 
 const defaultStorageQuotaBytes int64 = 1 << 30 // 1 GiB
@@ -12,10 +13,15 @@ type Config struct {
 	MongoURI            string
 	MongoDatabase       string
 	DefaultStorageQuota int64
+	OTPValidity         time.Duration
 }
 
 func LoadConfig() (Config, error) {
 	quota, err := positiveInt64Env("DEFAULT_STORAGE_QUOTA_BYTES", defaultStorageQuotaBytes)
+	if err != nil {
+		return Config{}, err
+	}
+	otpMinutes, err := positiveInt64Env("OTP_TTL_MINUTES", 10)
 	if err != nil {
 		return Config{}, err
 	}
@@ -24,6 +30,7 @@ func LoadConfig() (Config, error) {
 		MongoURI:            getEnv("MONGO_URI", "mongodb://localhost:27017"),
 		MongoDatabase:       getEnv("MONGO_DB", "google_drive"),
 		DefaultStorageQuota: quota,
+		OTPValidity:         time.Duration(otpMinutes) * time.Minute,
 	}, nil
 }
 

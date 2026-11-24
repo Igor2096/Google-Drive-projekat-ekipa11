@@ -27,6 +27,7 @@ services:
       MONGO_URI: mongodb://mongodb:27017
       MONGO_DB: ${MONGO_DB}
       DEFAULT_STORAGE_QUOTA_BYTES: ${DEFAULT_STORAGE_QUOTA_BYTES}
+      OTP_TTL_MINUTES: ${OTP_TTL_MINUTES}
   files-service:
     build: ./backend/files-service
     container_name: google-drive-files-service

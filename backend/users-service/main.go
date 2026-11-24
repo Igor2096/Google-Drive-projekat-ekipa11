@@ -46,6 +46,7 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.Handle("/register", RegistrationHandler(users, config.DefaultStorageQuota))
+	mux.Handle("/login", LoginHandler(users, config.OTPValidity))
 
 	log.Printf("Users servis radi na portu %s; MongoDB baza: %s", config.Port, config.MongoDatabase)
 	log.Fatal(http.ListenAndServe(":"+config.Port, mux))
