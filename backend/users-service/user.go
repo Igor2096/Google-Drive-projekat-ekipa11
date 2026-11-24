@@ -18,6 +18,8 @@ type User struct {
 	StorageQuota int64              `bson:"storage_quota" json:"storage_quota"`
 	UsedStorage  int64              `bson:"used_storage" json:"used_storage"`
 	Verified     bool               `bson:"verified" json:"verified"`
+	OTPHash      string             `bson:"otp_hash,omitempty" json:"-"`
+	OTPExpiresAt *time.Time         `bson:"otp_expires_at,omitempty" json:"-"`
 	CreatedAt    time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at"`
 }

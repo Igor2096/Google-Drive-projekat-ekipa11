@@ -19,13 +19,14 @@ func getEnv(key, fallback string) string {
 }
 
 func main() {
-	port := getEnv("PORT", "8081")
-	mongoURI := getEnv("MONGO_URI", "mongodb://localhost:27017")
-	mongoDatabase := getEnv("MONGO_DB", "google_drive")
+	config, err := LoadConfig()
+	if err != nil {
+		log.Fatal("Neispravna konfiguracija: ", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(config.MongoURI))
 	if err != nil {
 		log.Fatal("Povezivanje na MongoDB nije uspelo: ", err)
 	}
@@ -34,7 +35,7 @@ func main() {
 		log.Fatal("MongoDB nije dostupan: ", err)
 	}
 
-	users := NewUserRepository(client.Database(mongoDatabase).Collection("users"))
+	users := NewUserRepository(client.Database(config.MongoDatabase).Collection("users"))
 	if err := users.EnsureIndexes(ctx); err != nil {
 		log.Fatal("Kreiranje MongoDB indeksa nije uspelo: ", err)
 	}
@@ -44,8 +45,10 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("/register", RegistrationHandler(users))
+	mux.Handle("/register", RegistrationHandler(users, config.DefaultStorageQuota))
+	mux.Handle("/login", LoginHandler(users, config.OTPValidity))
+	mux.Handle("/verify-otp", VerifyOTPHandler(users, config.JWTSecret, config.TokenValidity))
 
-	log.Printf("Users servis radi na portu %s; MongoDB baza: %s", port, mongoDatabase)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Printf("Users servis radi na portu %s; MongoDB baza: %s", config.Port, config.MongoDatabase)
+	log.Fatal(http.ListenAndServe(":"+config.Port, mux))
 }
