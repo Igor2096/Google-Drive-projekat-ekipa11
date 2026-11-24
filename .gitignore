@@ -16,3 +16,6 @@ dist/
 # Operating system
 .DS_Store
 Thumbs.db
+
+# Lokalni sadrzaj otpremljenih datoteka (Files servis)
+backend/files-service/data/

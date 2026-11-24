@@ -12,7 +12,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /files-service ./cmd
 
 # ---- run ----
 FROM alpine:3.20
-RUN adduser -D -u 10001 appuser
+# Folder za sadrzaj datoteka mora da postoji u imidzu i da pripada appuser-u,
+# jer Docker od njega preuzima vlasnistvo kada montira imenovani volume.
+RUN adduser -D -u 10001 appuser \
+ && mkdir -p /data/files \
+ && chown -R appuser:appuser /data
 USER appuser
 COPY --from=build /files-service /files-service
 EXPOSE 8082
