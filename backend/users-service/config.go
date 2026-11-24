@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const defaultStorageQuotaBytes int64 = 1 << 30 // 1 GiB
+const defaultStorageQuotaBytes int64 = 1 << 30
 
 type Config struct {
 	Port                string
@@ -15,7 +15,9 @@ type Config struct {
 	DefaultStorageQuota int64
 	OTPValidity         time.Duration
 	TokenValidity       time.Duration
+	EmailValidity       time.Duration
 	JWTSecret           string
+	Mail                MailConfig
 }
 
 func LoadConfig() (Config, error) {
@@ -31,6 +33,14 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	emailHours, err := positiveInt64Env("EMAIL_VERIFICATION_TTL_HOURS", 24)
+	if err != nil {
+		return Config{}, err
+	}
+	smtpPort, err := positiveInt64Env("SMTP_PORT", 1025)
+	if err != nil {
+		return Config{}, err
+	}
 	return Config{
 		Port:                getEnv("PORT", "8081"),
 		MongoURI:            getEnv("MONGO_URI", "mongodb://localhost:27017"),
@@ -38,7 +48,16 @@ func LoadConfig() (Config, error) {
 		DefaultStorageQuota: quota,
 		OTPValidity:         time.Duration(otpMinutes) * time.Minute,
 		TokenValidity:       time.Duration(tokenMinutes) * time.Minute,
+		EmailValidity:       time.Duration(emailHours) * time.Hour,
 		JWTSecret:           getEnv("JWT_SECRET", "development-only-change-me"),
+		Mail: MailConfig{
+			Host:     getEnv("SMTP_HOST", "localhost"),
+			Port:     int(smtpPort),
+			Username: getEnv("SMTP_USERNAME", ""),
+			Password: getEnv("SMTP_PASSWORD", ""),
+			From:     getEnv("SMTP_FROM", "noreply@google-drive.local"),
+			AppURL:   getEnv("APP_BASE_URL", "http://localhost:8081"),
+		},
 	}, nil
 }
 

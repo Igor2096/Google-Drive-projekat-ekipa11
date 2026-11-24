@@ -56,6 +56,35 @@ func (r *UserRepository) FindByID(ctx context.Context, id primitive.ObjectID) (*
 	return &user, nil
 }
 
+func (r *UserRepository) SetEmailVerificationToken(ctx context.Context, userID primitive.ObjectID, tokenHash string, expiresAt time.Time) error {
+	_, err := r.collection.UpdateByID(ctx, userID, bson.M{"$set": bson.M{
+		"email_verification_token_hash": tokenHash,
+		"email_verification_expires_at": expiresAt,
+		"updated_at":                    time.Now().UTC(),
+	}})
+	return err
+}
+
+func (r *UserRepository) ConfirmEmail(ctx context.Context, userID primitive.ObjectID, tokenHash string) (bool, error) {
+	result, err := r.collection.UpdateOne(ctx, bson.M{
+		"_id":                           userID,
+		"email_verification_token_hash": tokenHash,
+		"email_verification_expires_at": bson.M{"$gt": time.Now().UTC()},
+	}, bson.M{
+		"$set":   bson.M{"verified": true, "updated_at": time.Now().UTC()},
+		"$unset": bson.M{"email_verification_token_hash": "", "email_verification_expires_at": ""},
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.MatchedCount == 1, nil
+}
+
+func (r *UserRepository) DeleteByID(ctx context.Context, userID primitive.ObjectID) error {
+	_, err := r.collection.DeleteOne(ctx, bson.M{"_id": userID})
+	return err
+}
+
 func (r *UserRepository) SetLoginOTP(ctx context.Context, userID primitive.ObjectID, otpHash string, expiresAt time.Time) error {
 	_, err := r.collection.UpdateByID(ctx, userID, bson.M{"$set": bson.M{
 		"otp_hash":       otpHash,

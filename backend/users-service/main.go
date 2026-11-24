@@ -41,11 +41,13 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mailer := NewSMTPEmailSender(config.Mail)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("/register", RegistrationHandler(users, config.DefaultStorageQuota))
+	mux.Handle("/register", RegistrationHandler(users, config.DefaultStorageQuota, mailer, config.Mail.AppURL, config.EmailValidity))
+	mux.Handle("/confirm-email", ConfirmEmailHandler(users))
 	mux.Handle("/login", LoginHandler(users, config.OTPValidity))
 	mux.Handle("/verify-otp", VerifyOTPHandler(users, config.JWTSecret, config.TokenValidity))
 	mux.Handle("/users/", UserQuotaHandler(users))
