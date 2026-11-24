@@ -3,6 +3,7 @@ module github.com/Igor2096/Google-Drive-projekat-ekipa11/backend/users-service
 go 1.27.4
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	go.mongodb.org/mongo-driver v1.17.6
 	golang.org/x/crypto v0.45.0
 )

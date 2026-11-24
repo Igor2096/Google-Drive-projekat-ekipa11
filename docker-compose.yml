@@ -28,6 +28,8 @@ services:
       MONGO_DB: ${MONGO_DB}
       DEFAULT_STORAGE_QUOTA_BYTES: ${DEFAULT_STORAGE_QUOTA_BYTES}
       OTP_TTL_MINUTES: ${OTP_TTL_MINUTES}
+      TOKEN_TTL_MINUTES: ${TOKEN_TTL_MINUTES}
+      JWT_SECRET: ${JWT_SECRET}
   files-service:
     build: ./backend/files-service
     container_name: google-drive-files-service

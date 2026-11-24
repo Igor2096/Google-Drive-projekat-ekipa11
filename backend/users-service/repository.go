@@ -56,3 +56,14 @@ func (r *UserRepository) SetLoginOTP(ctx context.Context, userID primitive.Objec
 	}})
 	return err
 }
+
+func (r *UserRepository) ConsumeLoginOTP(ctx context.Context, userID primitive.ObjectID, otpHash string) (bool, error) {
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": userID, "otp_hash": otpHash}, bson.M{
+		"$unset": bson.M{"otp_hash": "", "otp_expires_at": ""},
+		"$set":   bson.M{"updated_at": time.Now().UTC()},
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.MatchedCount == 1, nil
+}

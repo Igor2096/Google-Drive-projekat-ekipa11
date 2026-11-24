@@ -14,10 +14,16 @@ type Config struct {
 	MongoDatabase       string
 	DefaultStorageQuota int64
 	OTPValidity         time.Duration
+	TokenValidity       time.Duration
+	JWTSecret           string
 }
 
 func LoadConfig() (Config, error) {
 	quota, err := positiveInt64Env("DEFAULT_STORAGE_QUOTA_BYTES", defaultStorageQuotaBytes)
+	if err != nil {
+		return Config{}, err
+	}
+	tokenMinutes, err := positiveInt64Env("TOKEN_TTL_MINUTES", 60)
 	if err != nil {
 		return Config{}, err
 	}
@@ -31,6 +37,8 @@ func LoadConfig() (Config, error) {
 		MongoDatabase:       getEnv("MONGO_DB", "google_drive"),
 		DefaultStorageQuota: quota,
 		OTPValidity:         time.Duration(otpMinutes) * time.Minute,
+		TokenValidity:       time.Duration(tokenMinutes) * time.Minute,
+		JWTSecret:           getEnv("JWT_SECRET", "development-only-change-me"),
 	}, nil
 }
 
