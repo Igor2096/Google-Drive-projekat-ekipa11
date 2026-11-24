@@ -26,6 +26,7 @@ services:
       PORT: 8081
       MONGO_URI: mongodb://mongodb:27017
       MONGO_DB: ${MONGO_DB}
+      DEFAULT_STORAGE_QUOTA_BYTES: ${DEFAULT_STORAGE_QUOTA_BYTES}
   files-service:
     build: ./backend/files-service
     container_name: google-drive-files-service

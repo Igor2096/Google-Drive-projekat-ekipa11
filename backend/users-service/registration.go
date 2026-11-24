@@ -21,7 +21,7 @@ type registerRequest struct {
 	ConfirmPassword string `json:"confirm_password"`
 }
 
-func RegistrationHandler(users *UserRepository) http.Handler {
+func RegistrationHandler(users *UserRepository, defaultStorageQuota int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -47,7 +47,7 @@ func RegistrationHandler(users *UserRepository) http.Handler {
 			return
 		}
 		now := time.Now().UTC()
-		user := &User{FirstName: request.FirstName, LastName: request.LastName, Email: request.Email, PasswordHash: hash, Role: regularUserRole, CreatedAt: now, UpdatedAt: now}
+		user := &User{FirstName: request.FirstName, LastName: request.LastName, Email: request.Email, PasswordHash: hash, Role: regularUserRole, StorageQuota: defaultStorageQuota, CreatedAt: now, UpdatedAt: now}
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		if err := users.Create(ctx, user); err != nil {
