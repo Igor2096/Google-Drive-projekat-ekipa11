@@ -4,6 +4,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -14,6 +15,8 @@ type Config struct {
 	MongoDB        string        // ime baze za files servis
 	AllowedOrigins []string      // CORS (Angular dev server dok nema gateway-a)
 	DBTimeout      time.Duration // timeout za pojedinacnu operaciju nad bazom
+	StoragePath    string        // gde se cuva sadrzaj datoteka (T-23)
+	MaxUploadSize  int64         // najveca dozvoljena velicina jednog zahteva za otpremanje
 }
 
 func Load() Config {
@@ -23,12 +26,23 @@ func Load() Config {
 		MongoDB:        getEnv("FILES_DB_NAME", "files_db"),
 		AllowedOrigins: strings.Split(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:4200"), ","),
 		DBTimeout:      getDuration("DB_TIMEOUT", 5*time.Second),
+		StoragePath:    getEnv("STORAGE_PATH", "./data/files"),
+		MaxUploadSize:  getBytes("MAX_UPLOAD_SIZE", 50<<20), // 50 MB
 	}
 }
 
 func getEnv(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
 		return v
+	}
+	return fallback
+}
+
+func getBytes(key string, fallback int64) int64 {
+	if v, ok := os.LookupEnv(key); ok {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n
+		}
 	}
 	return fallback
 }

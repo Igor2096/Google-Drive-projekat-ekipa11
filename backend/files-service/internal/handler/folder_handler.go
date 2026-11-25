@@ -102,11 +102,11 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvalidName), errors.Is(err, service.ErrInvalidID):
 		writeError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, service.ErrNotFound):
+	case errors.Is(err, service.ErrNotFound), errors.Is(err, service.ErrFileNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, service.ErrForbidden):
 		writeError(w, http.StatusForbidden, err.Error())
-	case errors.Is(err, service.ErrDuplicate):
+	case errors.Is(err, service.ErrDuplicate), errors.Is(err, service.ErrFileDuplicate):
 		writeError(w, http.StatusConflict, err.Error())
 	default:
 		log.Printf("internal error: %v", err)

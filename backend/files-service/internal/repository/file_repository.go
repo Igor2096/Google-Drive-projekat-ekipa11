@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -12,8 +13,6 @@ import (
 	"files-service/internal/model"
 )
 
-// FileRepository - za sada samo citanje (prikaz sadrzaja foldera).
-// Otpremanje (1.5) se dodaje ovde: Create, UpdateVersion...
 type FileRepository struct {
 	coll    *mongo.Collection
 	timeout time.Duration
@@ -37,4 +36,38 @@ func (r *FileRepository) FindInFolder(ctx context.Context, ownerID string, folde
 		return nil, err
 	}
 	return files, nil
+}
+
+// Create upisuje metapodatke o datoteci (T-23).
+// ID se postavlja unapred u servisu, jer od njega nastaje StorageKey.
+func (r *FileRepository) Create(ctx context.Context, f *model.File) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.coll.InsertOne(ctx, f)
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return ErrDuplicate
+		}
+		return err
+	}
+	return nil
+}
+
+// FindByName trazi datoteku po nazivu unutar jednog foldera.
+// Koristi se da se duplikat otkrije pre nego sto se sadrzaj upise u storage,
+// a kasnije i za otpremanje nove verzije (T-25).
+func (r *FileRepository) FindByName(ctx context.Context, ownerID string, folderID *bson.ObjectID, name string) (*model.File, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	var f model.File
+	err := r.coll.FindOne(ctx, bson.M{"ownerId": ownerID, "folderId": folderID, "name": name}).Decode(&f)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &f, nil
 }
