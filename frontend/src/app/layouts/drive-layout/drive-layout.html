@@ -1,0 +1,98 @@
+<header class="topbar">
+  <a class="brand" routerLink="/">
+    <app-icon name="cloud" [size]="36" class="brand-icon" />
+    <span>Disk</span>
+  </a>
+
+  <div class="search" title="Pretraga stize u kasnijem sprintu (1.11)">
+    <app-icon name="search" />
+    <input type="text" placeholder="Pretraži u Disku" disabled />
+  </div>
+
+  <div class="topbar-right">
+  <button
+    class="notification-bell"
+    type="button"
+    aria-label="Obaveštenja"
+    title="Obaveštenja"
+    (click)="toggleNotifications($event)"
+  >
+    <app-icon name="bell" [size]="22" />
+
+    @if (unreadCount() > 0) {
+      <span class="notification-badge">
+        {{ unreadCount() }}
+      </span>
+    }
+  </button>
+
+  @if (notificationsOpen()) {
+    <div class="notification-dropdown" (click)="$event.stopPropagation()">
+      <app-notification-list />
+    </div>
+  }
+
+  <div class="avatar" [title]="'Test korisnik: ' + userInitials">
+    {{ userInitials }}
+  </div>
+</div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="new-wrapper">
+      <button class="new-btn" type="button" (click)="toggleNewMenu($event)">
+        <app-icon name="plus" [size]="24" />
+        Novo
+      </button>
+
+      @if (newMenuOpen()) {
+        <div class="menu new-menu" (click)="$event.stopPropagation()">
+          <button type="button" (click)="openNewFolder()">
+            <app-icon name="new-folder" /> Novi folder
+          </button>
+          <hr />
+          <button type="button" disabled title="Uskoro (1.5)">
+            <app-icon name="upload" /> Otpremanje datoteke
+          </button>
+        </div>
+      }
+    </div>
+
+    <nav class="nav">
+      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: false }" class="nav-item">
+        <app-icon name="home" /> Moj disk
+      </a>
+      <span class="nav-item disabled" title="Uskoro"><app-icon name="shared" /> Deljeno sa mnom</span>
+      <span class="nav-item disabled" title="Uskoro"><app-icon name="recent" /> Nedavno</span>
+      <span class="nav-item disabled" title="Notifications servis"><app-icon name="bell" /> Notifikacije</span>
+      <span class="nav-item disabled" title="Uskoro"><app-icon name="trash" /> Otpad</span>
+    </nav>
+
+    <!-- <div class="storage">
+      <div class="storage-label"><app-icon name="cloud" [size]="18" /> Skladište</div>
+      <div class="storage-bar"><div class="storage-fill" style="width: 0%"></div></div>
+      <small>Kvota stiže iz Users servisa</small>
+    </div> -->
+  </aside>
+
+  <main class="content">
+    <router-outlet />
+  </main>
+</div>
+
+@if (state.newFolderDialogOpen()) {
+  <app-name-dialog
+    title="Novi folder"
+    initialValue="Folder bez naziva"
+    confirmLabel="Napravi"
+    [busy]="creating()"
+    [serverError]="createError()"
+    (confirmed)="createFolder($event)"
+    (cancelled)="closeNewFolder()"
+  />
+}
+
+@if (state.toast()) {
+  <div class="toast" role="status">{{ state.toast() }}</div>
+}

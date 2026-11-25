@@ -9,12 +9,13 @@ import { FolderService } from '../../core/services/folder.service';
 import { Icon } from '../../shared/components/icon/icon';
 import { NameDialog } from '../../shared/components/name-dialog/name-dialog';
 import { FileSizePipe } from '../../shared/pipes/file-size.pipe';
+import { NotificationList } from '../notifications/notification-list';
 
 type ViewMode = 'grid' | 'list';
 
 @Component({
   selector: 'app-drive-page',
-  imports: [RouterLink, DatePipe, Icon, NameDialog, FileSizePipe],
+  imports: [RouterLink, DatePipe, Icon, NameDialog, FileSizePipe, NotificationList],
   templateUrl: './drive-page.html',
 })
 export class DrivePage {

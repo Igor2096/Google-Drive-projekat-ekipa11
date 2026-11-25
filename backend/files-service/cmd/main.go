@@ -60,12 +60,11 @@ func main() {
 	root.Handle("/", middleware.Auth(api))
 
 	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           middleware.Logging(middleware.CORS(cfg.AllowedOrigins)(root)),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		Addr:    ":" + cfg.Port,
+		Handler: middleware.Logging(root), ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	go func() {

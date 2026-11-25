@@ -25,7 +25,10 @@ type FolderRepository struct {
 }
 
 func NewFolderRepository(database *mongo.Database, timeout time.Duration) *FolderRepository {
-	return &FolderRepository{coll: database.Collection(db.FoldersCollection), timeout: timeout}
+	return &FolderRepository{
+		coll:    database.Collection(db.FoldersCollection),
+		timeout: timeout,
+	}
 }
 
 func (r *FolderRepository) Create(ctx context.Context, f *model.Folder) error {
@@ -39,6 +42,7 @@ func (r *FolderRepository) Create(ctx context.Context, f *model.Folder) error {
 		}
 		return err
 	}
+
 	f.ID = res.InsertedID.(bson.ObjectID)
 	return nil
 }
@@ -49,12 +53,14 @@ func (r *FolderRepository) FindByID(ctx context.Context, id bson.ObjectID) (*mod
 
 	var f model.Folder
 	err := r.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&f)
+
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+
 	return &f, nil
 }
 
@@ -65,53 +71,83 @@ func (r *FolderRepository) FindChildren(ctx context.Context, ownerID string, par
 
 	// U Mongo-u {parentId: null} pogadja i dokumente gde je polje null
 	// i one gde ne postoji - sto je upravo "koren".
-	filter := bson.M{"ownerId": ownerID, "parentId": parentID}
-	cur, err := r.coll.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "name", Value: 1}}))
+	filter := bson.M{
+		"ownerId":  ownerID,
+		"parentId": parentID,
+	}
+
+	cur, err := r.coll.Find(
+		ctx,
+		filter,
+		options.Find().SetSort(bson.D{{Key: "name", Value: 1}}),
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	folders := []model.Folder{}
 	if err := cur.All(ctx, &folders); err != nil {
 		return nil, err
 	}
+
 	return folders, nil
 }
 
-// FindByIDs vraca foldere sa datim ID-jevima (koristi se za breadcrumbs).
-func (r *FolderRepository) FindByIDs(ctx context.Context, ids []bson.ObjectID) ([]model.Folder, error) {
+// FindByIDs vraca foldere sa datim ID-jevima koji pripadaju korisniku.
+func (r *FolderRepository) FindByIDs(ctx context.Context, ownerID string, ids []bson.ObjectID) ([]model.Folder, error) {
 	if len(ids) == 0 {
 		return []model.Folder{}, nil
 	}
+
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	cur, err := r.coll.Find(ctx, bson.M{"_id": bson.M{"$in": ids}})
+	filter := bson.M{
+		"_id":     bson.M{"$in": ids},
+		"ownerId": ownerID,
+	}
+
+	cur, err := r.coll.Find(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
+
 	folders := []model.Folder{}
 	if err := cur.All(ctx, &folders); err != nil {
 		return nil, err
 	}
+
 	return folders, nil
 }
 
-func (r *FolderRepository) Rename(ctx context.Context, id bson.ObjectID, name string) error {
+// Rename menja naziv foldera samo ako pripada datom korisniku.
+func (r *FolderRepository) Rename(ctx context.Context, id bson.ObjectID, ownerID string, name string) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	res, err := r.coll.UpdateOne(ctx,
-		bson.M{"_id": id},
-		bson.M{"$set": bson.M{"name": name, "updatedAt": time.Now().UTC()}},
-	)
+	filter := bson.M{
+		"_id":     id,
+		"ownerId": ownerID,
+	}
+
+	update := bson.M{
+		"$set": bson.M{
+			"name":      name,
+			"updatedAt": time.Now().UTC(),
+		},
+	}
+
+	res, err := r.coll.UpdateOne(ctx, filter, update)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
 			return ErrDuplicate
 		}
 		return err
 	}
+
 	if res.MatchedCount == 0 {
 		return ErrNotFound
 	}
+
 	return nil
 }

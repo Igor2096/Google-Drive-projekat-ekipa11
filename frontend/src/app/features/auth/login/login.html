@@ -1,0 +1,46 @@
+
+<div class="auth-container">
+  <h1>Dobro došao nazad!</h1>
+  <p>Prijavi se na svoj nalog.</p>
+
+  <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
+    <label for="email">Email</label>
+    <input
+      id="email"
+      type="email"
+      formControlName="email"
+      placeholder="ime@example.com"
+    />
+
+    @if (loginForm.controls.email.touched &&
+         loginForm.controls.email.invalid) {
+      <small>Unesi ispravnu email adresu.</small>
+    }
+
+    <label for="password">Lozinka</label>
+    <input
+      id="password"
+      type="password"
+      formControlName="password"
+      placeholder="Unesi lozinku"
+    />
+
+    @if (loginForm.controls.password.touched &&
+         loginForm.controls.password.invalid) {
+      <small>Lozinka je obavezna.</small>
+    }
+
+    @if (errorMessage) {
+      <p class="error-message">{{ errorMessage }}</p>
+    }
+
+    <button type="submit" [disabled]="loading">
+      {{ loading ? 'Prijavljivanje...' : 'Prijavi se' }}
+    </button>
+  </form>
+
+  <p>
+    Nemaš nalog?
+    <a routerLink="/register">Registruj se</a>
+  </p>
+</div>
