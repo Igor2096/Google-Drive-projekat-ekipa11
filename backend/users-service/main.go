@@ -50,6 +50,7 @@ func main() {
 	mux.Handle("/confirm-email", ConfirmEmailHandler(users))
 	mux.Handle("/login", LoginHandler(users, config.OTPValidity, mailer))
 	mux.Handle("/verify-otp", VerifyOTPHandler(users, config.JWTSecret, config.TokenValidity))
+	mux.Handle("/change-password", ChangePasswordHandler(users, config.PasswordChangeMinimumAge))
 	mux.Handle("/users/", UserQuotaHandler(users))
 
 	log.Printf("Users servis radi na portu %s; MongoDB baza: %s", config.Port, config.MongoDatabase)

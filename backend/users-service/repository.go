@@ -85,6 +85,16 @@ func (r *UserRepository) DeleteByID(ctx context.Context, userID primitive.Object
 	return err
 }
 
+func (r *UserRepository) UpdatePassword(ctx context.Context, userID primitive.ObjectID, passwordHash string) error {
+	now := time.Now().UTC()
+	_, err := r.collection.UpdateByID(ctx, userID, bson.M{"$set": bson.M{
+		"password_hash":       passwordHash,
+		"password_changed_at": now,
+		"updated_at":          now,
+	}})
+	return err
+}
+
 func (r *UserRepository) SetLoginOTP(ctx context.Context, userID primitive.ObjectID, otpHash string, expiresAt time.Time) error {
 	_, err := r.collection.UpdateByID(ctx, userID, bson.M{"$set": bson.M{
 		"otp_hash":       otpHash,

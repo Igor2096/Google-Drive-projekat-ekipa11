@@ -48,7 +48,7 @@ func RegistrationHandler(users *UserRepository, defaultStorageQuota int64, maile
 			return
 		}
 		now := time.Now().UTC()
-		user := &User{FirstName: request.FirstName, LastName: request.LastName, Email: request.Email, PasswordHash: hash, Role: regularUserRole, StorageQuota: defaultStorageQuota, CreatedAt: now, UpdatedAt: now}
+		user := &User{FirstName: request.FirstName, LastName: request.LastName, Email: request.Email, PasswordHash: hash, PasswordChangedAt: now, Role: regularUserRole, StorageQuota: defaultStorageQuota, CreatedAt: now, UpdatedAt: now}
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		if err := users.Create(ctx, user); err != nil {

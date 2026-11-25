@@ -9,15 +9,16 @@ import (
 const defaultStorageQuotaBytes int64 = 1 << 30
 
 type Config struct {
-	Port                string
-	MongoURI            string
-	MongoDatabase       string
-	DefaultStorageQuota int64
-	OTPValidity         time.Duration
-	TokenValidity       time.Duration
-	EmailValidity       time.Duration
-	JWTSecret           string
-	Mail                MailConfig
+	Port                     string
+	MongoURI                 string
+	MongoDatabase            string
+	DefaultStorageQuota      int64
+	OTPValidity              time.Duration
+	TokenValidity            time.Duration
+	EmailValidity            time.Duration
+	PasswordChangeMinimumAge time.Duration
+	JWTSecret                string
+	Mail                     MailConfig
 }
 
 func LoadConfig() (Config, error) {
@@ -37,19 +38,24 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	passwordChangeHours, err := positiveInt64Env("PASSWORD_CHANGE_MIN_AGE_HOURS", 24)
+	if err != nil {
+		return Config{}, err
+	}
 	smtpPort, err := positiveInt64Env("SMTP_PORT", 1025)
 	if err != nil {
 		return Config{}, err
 	}
 	return Config{
-		Port:                getEnv("PORT", "8081"),
-		MongoURI:            getEnv("MONGO_URI", "mongodb://localhost:27017"),
-		MongoDatabase:       getEnv("MONGO_DB", "google_drive"),
-		DefaultStorageQuota: quota,
-		OTPValidity:         time.Duration(otpMinutes) * time.Minute,
-		TokenValidity:       time.Duration(tokenMinutes) * time.Minute,
-		EmailValidity:       time.Duration(emailHours) * time.Hour,
-		JWTSecret:           getEnv("JWT_SECRET", "development-only-change-me"),
+		Port:                     getEnv("PORT", "8081"),
+		MongoURI:                 getEnv("MONGO_URI", "mongodb://localhost:27017"),
+		MongoDatabase:            getEnv("MONGO_DB", "google_drive"),
+		DefaultStorageQuota:      quota,
+		OTPValidity:              time.Duration(otpMinutes) * time.Minute,
+		TokenValidity:            time.Duration(tokenMinutes) * time.Minute,
+		EmailValidity:            time.Duration(emailHours) * time.Hour,
+		PasswordChangeMinimumAge: time.Duration(passwordChangeHours) * time.Hour,
+		JWTSecret:                getEnv("JWT_SECRET", "development-only-change-me"),
 		Mail: MailConfig{
 			Host:     getEnv("SMTP_HOST", "localhost"),
 			Port:     int(smtpPort),
