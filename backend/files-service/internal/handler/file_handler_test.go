@@ -18,6 +18,7 @@ import (
 	"files-service/internal/model"
 	"files-service/internal/repository"
 	"files-service/internal/service"
+	"files-service/internal/users"
 )
 
 // --- minimalni fake-ovi, da test ne zahteva Mongo ni disk ---
@@ -88,13 +89,25 @@ func (m *memStore) Delete(_ context.Context, key string) error {
 	return nil
 }
 
+// quota je fake Users servis: uvek kaze koliko je prostora ostalo.
+type quota struct{ available int64 }
+
+func (q quota) Quota(context.Context, string) (users.Quota, error) {
+	return users.Quota{StorageQuota: q.available, AvailableStorage: q.available}, nil
+}
+
 // newServer sklapa isti lanac kao cmd/main.go: CORS se preskace, ali Auth ostaje.
 func newServer(maxUpload int64) (http.Handler, *memStore) {
+	return newServerQuota(maxUpload, 1<<30)
+}
+
+func newServerQuota(maxUpload, available int64) (http.Handler, *memStore) {
 	store := &memStore{objects: map[string][]byte{}}
 	svc := service.NewFileService(
 		&folders{items: map[bson.ObjectID]model.Folder{}},
 		&files{},
 		store,
+		quota{available: available},
 	)
 
 	api := http.NewServeMux()
@@ -232,5 +245,18 @@ func TestUploadStripsPathFromFilename(t *testing.T) {
 
 	if got.Name != "slika.png" {
 		t.Fatalf("naziv %q", got.Name)
+	}
+}
+
+// Kada korisnik nema dovoljno prostora, servis vraca 507 Insufficient Storage.
+func TestUploadOverQuotaReturns507(t *testing.T) {
+	h, store := newServerQuota(1<<20, 3)
+
+	rec := post(t, h, "u1", "file", "veliko.txt", "mnogo vise od tri bajta")
+	if rec.Code != http.StatusInsufficientStorage {
+		t.Fatalf("status %d, telo: %s", rec.Code, rec.Body.String())
+	}
+	if len(store.objects) != 0 {
+		t.Fatal("sadrzaj nije smeo da dodje do storage-a")
 	}
 }

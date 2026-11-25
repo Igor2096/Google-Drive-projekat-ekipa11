@@ -11,7 +11,24 @@ import (
 
 	"files-service/internal/model"
 	"files-service/internal/repository"
+	"files-service/internal/users"
 )
+
+// --- fake Users servis ---
+
+type fakeQuota struct {
+	available int64
+	err       error
+	calls     int
+}
+
+func (f *fakeQuota) Quota(context.Context, string) (users.Quota, error) {
+	f.calls++
+	if f.err != nil {
+		return users.Quota{}, f.err
+	}
+	return users.Quota{StorageQuota: f.available, UsedStorage: 0, AvailableStorage: f.available}, nil
+}
 
 // --- fake storage u memoriji ---
 
@@ -63,10 +80,16 @@ func (f *fakeFileStore) Create(_ context.Context, file *model.File) error {
 }
 
 func newFileSvc() (*FileService, *fakeFolders, *fakeFileStore, *fakeStorage) {
+	svc, folders, files, store, _ := newFileSvcQuota(1 << 30) // 1 GB, dovoljno za sve testove
+	return svc, folders, files, store
+}
+
+func newFileSvcQuota(available int64) (*FileService, *fakeFolders, *fakeFileStore, *fakeStorage, *fakeQuota) {
 	folders := &fakeFolders{items: map[bson.ObjectID]model.Folder{}}
 	files := &fakeFileStore{}
 	store := newFakeStorage()
-	return NewFileService(folders, files, store), folders, files, store
+	quota := &fakeQuota{available: available}
+	return NewFileService(folders, files, store, quota), folders, files, store, quota
 }
 
 func upload(svc *FileService, owner, name, folderID, body string) (*model.File, error) {
@@ -188,5 +211,73 @@ func TestUploadStorageFailureLeavesNoMetadata(t *testing.T) {
 	}
 	if len(files.items) != 0 {
 		t.Fatal("metapodaci su upisani iako sadrzaj nije")
+	}
+}
+
+// --- T-23: provera kvote kod Users servisa ---
+
+func TestUploadRejectedWhenOverQuota(t *testing.T) {
+	svc, _, files, store, quota := newFileSvcQuota(5)
+
+	_, err := upload(svc, "u1", "veliko.txt", "", "deset bajt")
+	if !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("ocekivano ErrQuotaExceeded, dobijeno %v", err)
+	}
+	if quota.calls != 1 {
+		t.Fatalf("Users servis je pozvan %d puta", quota.calls)
+	}
+	if len(store.objects) != 0 || len(files.items) != 0 {
+		t.Fatal("nista nije smelo da se upise kada kvota nije dovoljna")
+	}
+}
+
+func TestUploadAllowedWhenExactlyFits(t *testing.T) {
+	svc, _, _, _, _ := newFileSvcQuota(6)
+	if _, err := upload(svc, "u1", "tacno.txt", "", "zdravo"); err != nil {
+		t.Fatalf("datoteka koja tacno staje je odbijena: %v", err)
+	}
+}
+
+func TestUploadRejectedWhenUsersServiceDown(t *testing.T) {
+	svc, _, files, store, quota := newFileSvcQuota(1 << 30)
+	quota.err = users.ErrUnavailable
+
+	if _, err := upload(svc, "u1", "a.txt", "", "x"); !errors.Is(err, ErrUsersUnavailable) {
+		t.Fatalf("ocekivano ErrUsersUnavailable, dobijeno %v", err)
+	}
+	if len(store.objects) != 0 || len(files.items) != 0 {
+		t.Fatal("bez potvrdjene kvote nista ne sme da se upise")
+	}
+}
+
+func TestUploadRejectedForUnknownUser(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+	quota.err = users.ErrUserNotFound
+
+	if _, err := upload(svc, "nepostojeci", "a.txt", "", "x"); !errors.Is(err, ErrUnknownUser) {
+		t.Fatalf("ocekivano ErrUnknownUser, dobijeno %v", err)
+	}
+}
+
+// Prazna datoteka ne zauzima prostor, pa nema razloga zvati Users servis.
+func TestEmptyFileSkipsQuotaCall(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(0)
+
+	if _, err := upload(svc, "u1", "prazno.txt", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if quota.calls != 0 {
+		t.Fatalf("Users servis nije trebalo zvati, pozvan %d puta", quota.calls)
+	}
+}
+
+// Lokalne provere (naziv, vlasnistvo) moraju da se dese pre mreznog poziva.
+func TestBadRequestDoesNotCallUsersService(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	_, _ = upload(svc, "u1", "a/b.txt", "", "x")                     // nevalidan naziv
+	_, _ = upload(svc, "u1", "a.txt", bson.NewObjectID().Hex(), "x") // nepostojeci folder
+	if quota.calls != 0 {
+		t.Fatalf("Users servis je pozvan %d puta, a nije trebalo nijednom", quota.calls)
 	}
 }

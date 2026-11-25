@@ -11,14 +11,24 @@ import (
 	"files-service/internal/model"
 	"files-service/internal/repository"
 	"files-service/internal/storage"
+	"files-service/internal/users"
 )
 
 var (
-	ErrFileNotFound  = errors.New("datoteka ne postoji")
-	ErrFileDuplicate = errors.New("datoteka sa tim nazivom vec postoji u ovom folderu")
+	ErrFileNotFound     = errors.New("datoteka ne postoji")
+	ErrFileDuplicate    = errors.New("datoteka sa tim nazivom vec postoji u ovom folderu")
+	ErrQuotaExceeded    = errors.New("nemate dovoljno slobodnog prostora")
+	ErrUnknownUser      = errors.New("korisnik ne postoji")
+	ErrUsersUnavailable = errors.New("provera kvote trenutno nije moguca")
 )
 
 const defaultMimeType = "application/octet-stream"
+
+// quotaChecker je ono sto Files servisu treba od Users servisa.
+// Interfejs stoji ovde (kod potrosaca), pa se u testovima lako zameni.
+type quotaChecker interface {
+	Quota(ctx context.Context, userID string) (users.Quota, error)
+}
 
 type fileWriteStore interface {
 	FindByName(ctx context.Context, ownerID string, folderID *bson.ObjectID, name string) (*model.File, error)
@@ -30,10 +40,11 @@ type FileService struct {
 	folders folderStore
 	files   fileWriteStore
 	store   storage.Storage
+	quotas  quotaChecker
 }
 
-func NewFileService(folders folderStore, files fileWriteStore, store storage.Storage) *FileService {
-	return &FileService{folders: folders, files: files, store: store}
+func NewFileService(folders folderStore, files fileWriteStore, store storage.Storage, quotas quotaChecker) *FileService {
+	return &FileService{folders: folders, files: files, store: store, quotas: quotas}
 }
 
 // UploadInput - ono sto handler izvuce iz multipart zahteva.
@@ -80,6 +91,12 @@ func (s *FileService) Upload(ctx context.Context, ownerID string, in UploadInput
 		return nil, err
 	}
 
+	// T-23: kvota se proverava sinhrono kod Users servisa, pre nego sto se
+	// isporuci i jedan bajt. Lokalne provere idu pre ovoga jer su besplatne.
+	if err := s.checkQuota(ctx, ownerID, in.Size); err != nil {
+		return nil, err
+	}
+
 	id := bson.NewObjectID()
 	key := id.Hex()
 
@@ -115,6 +132,29 @@ func (s *FileService) Upload(ctx context.Context, ownerID string, in UploadInput
 		return nil, err
 	}
 	return file, nil
+}
+
+// checkQuota pita Users servis koliko je korisniku ostalo i poredi sa
+// trazenim prirastom (needed). Za novu datoteku to je njena velicina.
+//
+// Ako Users servis ne odgovara, otpremanje se odbija umesto da se propusti:
+// bolje je odbiti nego dozvoliti korisniku da probije kvotu. Blaza varijanta
+// (rad i kada susedni servis padne) je zahtev 2.6 i dolazi kasnije.
+func (s *FileService) checkQuota(ctx context.Context, ownerID string, needed int64) error {
+	if needed <= 0 {
+		return nil
+	}
+	quota, err := s.quotas.Quota(ctx, ownerID)
+	switch {
+	case errors.Is(err, users.ErrUserNotFound):
+		return ErrUnknownUser
+	case err != nil:
+		return ErrUsersUnavailable
+	}
+	if needed > quota.AvailableStorage {
+		return ErrQuotaExceeded
+	}
+	return nil
 }
 
 // ownedFolder - zajednicka provera vlasnistva nad folderom (T-13).

@@ -1,7 +1,8 @@
 # Files servis
 
 Mikroservis za metapodatke o folderima i datotekama (Go + MongoDB).
-Pokriva: **T-10, T-11, T-12, T-13, T-20** (folderi) i **T-23** (otpremanje datoteke).
+Pokriva: **T-10, T-11, T-12, T-13, T-20** (folderi), otpremanje datoteke
+i **T-23** (sinhrona provera kvote kod Users servisa).
 
 ## Struktura
 
@@ -55,6 +56,8 @@ go test ./...
 | `DB_TIMEOUT` | `5s` | timeout jedne operacije nad bazom |
 | `STORAGE_PATH` | `./data/files` | gde se cuva sadrzaj datoteka |
 | `MAX_UPLOAD_SIZE` | `52428800` (50 MB) | najveci dozvoljeni upload, u bajtovima |
+| `USERS_SERVICE_URL` | `http://localhost:8081` | adresa Users servisa (provera kvote) |
+| `USERS_TIMEOUT` | `3s` | koliko se ceka odgovor Users servisa |
 
 ## Endpointi
 
@@ -123,6 +126,27 @@ Kako to radi iznutra:
 Ako treci korak pukne, sadrzaj se brise iz storage-a - da ne ostanu bajtovi na
 koje nijedan dokument ne pokazuje. Ako pukne drugi korak, u bazi nema nicega.
 
+### Provera kvote (2.5, T-23)
+
+Pre nego sto primi i jedan bajt, Files servis **sinhrono** pita Users servis
+koliko je korisniku ostalo prostora:
+
+```
+GET {USERS_SERVICE_URL}/users/{ownerId}/quota
+-> {"storage_quota": 1073741824, "used_storage": 0, "available_storage": 1073741824}
+```
+
+Ako datoteka ne staje, otpremanje se odbija sa `507`. Poziv ide **direktno**
+ka Users servisu, a ne kroz API gateway: gateway trazi korisnikov JWT, a Files
+servis ga nema - on govori u svoje ime, ne u ime korisnika.
+
+Redosled provera je namerno ovakav: naziv i vlasnistvo nad folderom proveravaju
+se lokalno i besplatno, pa tek onda ide mrezni poziv.
+
+Ako Users servis ne odgovori, otpremanje se **odbija** (`503`), a ne propusta -
+bolje odbiti nego dozvoliti probijanje kvote. Blaza varijanta, u kojoj servis
+nastavlja da radi i kada susedni servis padne, je zahtev 2.6.
+
 ### Status kodovi
 
 | Kod | Kada |
@@ -133,6 +157,8 @@ koje nijedan dokument ne pokazuje. Ako pukne drugi korak, u bazi nema nicega.
 | `404` | folder ne postoji |
 | `409` | folder ili datoteka sa istim nazivom vec postoji na istom mestu |
 | `413` | datoteka je veca od `MAX_UPLOAD_SIZE` |
+| `503` | Users servis ne odgovara, kvota se ne moze proveriti |
+| `507` | korisnik nema dovoljno slobodnog prostora |
 
 ## Model podataka (2.1)
 
