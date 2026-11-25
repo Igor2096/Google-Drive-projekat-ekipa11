@@ -18,6 +18,7 @@ type Config struct {
 	EmailValidity            time.Duration
 	PasswordChangeMinimumAge time.Duration
 	PasswordResetValidity    time.Duration
+	PasswordMaxAge           time.Duration
 	JWTSecret                string
 	Mail                     MailConfig
 }
@@ -47,6 +48,10 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	passwordMaxAge, err := passwordMaxAgeFromEnv()
+	if err != nil {
+		return Config{}, err
+	}
 	smtpPort, err := positiveInt64Env("SMTP_PORT", 1025)
 	if err != nil {
 		return Config{}, err
@@ -61,6 +66,7 @@ func LoadConfig() (Config, error) {
 		EmailValidity:            time.Duration(emailHours) * time.Hour,
 		PasswordChangeMinimumAge: time.Duration(passwordChangeHours) * time.Hour,
 		PasswordResetValidity:    time.Duration(passwordResetMinutes) * time.Minute,
+		PasswordMaxAge:           passwordMaxAge,
 		JWTSecret:                getEnv("JWT_SECRET", "development-only-change-me"),
 		Mail: MailConfig{
 			Host:     getEnv("SMTP_HOST", "localhost"),
@@ -71,6 +77,21 @@ func LoadConfig() (Config, error) {
 			AppURL:   getEnv("APP_BASE_URL", "http://localhost:8081"),
 		},
 	}, nil
+}
+
+func passwordMaxAgeFromEnv() (time.Duration, error) {
+	if getEnv("PASSWORD_MAX_AGE_MINUTES", "") != "" {
+		minutes, err := positiveInt64Env("PASSWORD_MAX_AGE_MINUTES", 1)
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(minutes) * time.Minute, nil
+	}
+	days, err := positiveInt64Env("PASSWORD_MAX_AGE_DAYS", 60)
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(days) * 24 * time.Hour, nil
 }
 
 func positiveInt64Env(key string, fallback int64) (int64, error) {

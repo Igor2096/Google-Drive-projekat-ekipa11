@@ -48,7 +48,7 @@ func main() {
 	})
 	mux.Handle("/register", RegistrationHandler(users, config.DefaultStorageQuota, mailer, config.Mail.AppURL, config.EmailValidity))
 	mux.Handle("/confirm-email", ConfirmEmailHandler(users))
-	mux.Handle("/login", LoginHandler(users, config.OTPValidity, mailer))
+	mux.Handle("/login", LoginHandler(users, config.OTPValidity, config.PasswordMaxAge, mailer))
 	mux.Handle("/verify-otp", VerifyOTPHandler(users, config.JWTSecret, config.TokenValidity))
 	mux.Handle("/change-password", ChangePasswordHandler(users, config.PasswordChangeMinimumAge))
 	mux.Handle("/forgot-password", RequestPasswordResetHandler(users, mailer, config.Mail.AppURL, config.PasswordResetValidity))

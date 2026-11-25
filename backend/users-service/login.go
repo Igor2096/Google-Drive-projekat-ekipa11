@@ -17,7 +17,7 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-func LoginHandler(users *UserRepository, otpValidity time.Duration, mailer EmailSender) http.Handler {
+func LoginHandler(users *UserRepository, otpValidity, passwordMaxAge time.Duration, mailer EmailSender) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -48,6 +48,10 @@ func LoginHandler(users *UserRepository, otpValidity time.Duration, mailer Email
 				log.Printf("Neuspešna provera prijave za %q: %v", request.Email, err)
 			}
 			http.Error(w, "Neispravan email ili lozinka", http.StatusUnauthorized)
+			return
+		}
+		if PasswordExpired(user.PasswordChangedAt, user.CreatedAt, time.Now().UTC(), passwordMaxAge) {
+			http.Error(w, "Lozinka je istekla. Zatražite reset lozinke putem emaila.", http.StatusForbidden)
 			return
 		}
 

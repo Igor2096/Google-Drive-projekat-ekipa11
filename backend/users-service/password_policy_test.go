@@ -14,3 +14,13 @@ func TestPasswordCanBeChangedAfterMinimumAge(t *testing.T) {
 		t.Fatal("lozinka mora biti promenljiva nakon 24 časa")
 	}
 }
+
+func TestPasswordExpiredAfterMaximumAge(t *testing.T) {
+	now := time.Date(2026, time.November, 25, 12, 0, 0, 0, time.UTC)
+	if PasswordExpired(now.Add(-59*24*time.Hour), time.Time{}, now, 60*24*time.Hour) {
+		t.Fatal("lozinka ne sme isteći pre 60 dana")
+	}
+	if !PasswordExpired(now.Add(-60*24*time.Hour), time.Time{}, now, 60*24*time.Hour) {
+		t.Fatal("lozinka mora isteći nakon 60 dana")
+	}
+}
