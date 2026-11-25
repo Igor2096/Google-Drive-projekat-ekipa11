@@ -17,6 +17,7 @@ type Config struct {
 	TokenValidity            time.Duration
 	EmailValidity            time.Duration
 	PasswordChangeMinimumAge time.Duration
+	PasswordResetValidity    time.Duration
 	JWTSecret                string
 	Mail                     MailConfig
 }
@@ -42,6 +43,10 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	passwordResetMinutes, err := positiveInt64Env("PASSWORD_RESET_TTL_MINUTES", 30)
+	if err != nil {
+		return Config{}, err
+	}
 	smtpPort, err := positiveInt64Env("SMTP_PORT", 1025)
 	if err != nil {
 		return Config{}, err
@@ -55,6 +60,7 @@ func LoadConfig() (Config, error) {
 		TokenValidity:            time.Duration(tokenMinutes) * time.Minute,
 		EmailValidity:            time.Duration(emailHours) * time.Hour,
 		PasswordChangeMinimumAge: time.Duration(passwordChangeHours) * time.Hour,
+		PasswordResetValidity:    time.Duration(passwordResetMinutes) * time.Minute,
 		JWTSecret:                getEnv("JWT_SECRET", "development-only-change-me"),
 		Mail: MailConfig{
 			Host:     getEnv("SMTP_HOST", "localhost"),

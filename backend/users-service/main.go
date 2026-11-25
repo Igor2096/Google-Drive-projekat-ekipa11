@@ -51,6 +51,8 @@ func main() {
 	mux.Handle("/login", LoginHandler(users, config.OTPValidity, mailer))
 	mux.Handle("/verify-otp", VerifyOTPHandler(users, config.JWTSecret, config.TokenValidity))
 	mux.Handle("/change-password", ChangePasswordHandler(users, config.PasswordChangeMinimumAge))
+	mux.Handle("/forgot-password", RequestPasswordResetHandler(users, mailer, config.Mail.AppURL, config.PasswordResetValidity))
+	mux.Handle("/reset-password", ResetPasswordHandler(users))
 	mux.Handle("/users/", UserQuotaHandler(users))
 
 	log.Printf("Users servis radi na portu %s; MongoDB baza: %s", config.Port, config.MongoDatabase)
