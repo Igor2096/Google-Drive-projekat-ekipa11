@@ -65,6 +65,23 @@ func (f *files) FindByName(_ context.Context, owner string, folder *bson.ObjectI
 	return nil, repository.ErrNotFound
 }
 
+func (f *files) FindByID(_ context.Context, id bson.ObjectID) (*model.File, error) {
+	for i := range f.items {
+		if f.items[i].ID == id {
+			return &f.items[i], nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+func (f *files) UpdateVersion(_ context.Context, file *model.File) error {
+	for i := range f.items {
+		if f.items[i].ID == file.ID {
+			f.items[i] = *file
+			return nil
+		}
+	}
+	return repository.ErrNotFound
+}
 func (f *files) Create(_ context.Context, file *model.File) error {
 	f.items = append(f.items, *file)
 	return nil
@@ -258,5 +275,51 @@ func TestUploadOverQuotaReturns507(t *testing.T) {
 	}
 	if len(store.objects) != 0 {
 		t.Fatal("sadrzaj nije smeo da dodje do storage-a")
+	}
+}
+
+// --- T-24 preko HTTP-a ---
+
+func put(t *testing.T, h http.Handler, userID, fileID, content string) *httptest.ResponseRecorder {
+	t.Helper()
+	contentType, body := multipartBody(t, "file", "nova.txt", content, "")
+	req := httptest.NewRequest(http.MethodPut, "/files/"+fileID, body)
+	req.Header.Set("Content-Type", contentType)
+	if userID != "" {
+		req.Header.Set(middleware.UserIDHeader, userID)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestNewVersionOverHTTP(t *testing.T) {
+	h, store := newServer(1 << 20)
+
+	rec := post(t, h, "u1", "file", "rad.txt", "prva")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("otpremanje: status %d", rec.Code)
+	}
+	var first model.File
+	_ = json.Unmarshal(rec.Body.Bytes(), &first)
+
+	rec = put(t, h, "u1", first.ID.Hex(), "druga verzija")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("nova verzija: status %d, telo: %s", rec.Code, rec.Body.String())
+	}
+	var second model.File
+	_ = json.Unmarshal(rec.Body.Bytes(), &second)
+	if second.Version != 2 || second.Name != "rad.txt" {
+		t.Fatalf("los odgovor: %+v", second)
+	}
+	if len(store.objects) != 1 {
+		t.Fatalf("ocekivan jedan objekat u storage-u, ima %d", len(store.objects))
+	}
+}
+
+func TestNewVersionOfMissingFileReturns404(t *testing.T) {
+	h, _ := newServer(1 << 20)
+	if rec := put(t, h, "u1", bson.NewObjectID().Hex(), "x"); rec.Code != http.StatusNotFound {
+		t.Fatalf("status %d, telo: %s", rec.Code, rec.Body.String())
 	}
 }

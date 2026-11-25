@@ -32,7 +32,9 @@ type quotaChecker interface {
 
 type fileWriteStore interface {
 	FindByName(ctx context.Context, ownerID string, folderID *bson.ObjectID, name string) (*model.File, error)
+	FindByID(ctx context.Context, id bson.ObjectID) (*model.File, error)
 	Create(ctx context.Context, f *model.File) error
+	UpdateVersion(ctx context.Context, f *model.File) error
 }
 
 // FileService - otpremanje datoteka (zahtev 1.5, task T-23).
@@ -98,7 +100,7 @@ func (s *FileService) Upload(ctx context.Context, ownerID string, in UploadInput
 	}
 
 	id := bson.NewObjectID()
-	key := id.Hex()
+	key := newStorageKey()
 
 	mimeType := in.MimeType
 	if mimeType == "" {
@@ -132,6 +134,85 @@ func (s *FileService) Upload(ctx context.Context, ownerID string, in UploadInput
 		return nil, err
 	}
 	return file, nil
+}
+
+// NewVersionInput - telo zahteva za novu verziju. Naziv i folder se ne salju:
+// to je i dalje ista datoteka, menja se samo njen sadrzaj (zahtev 1.5).
+type NewVersionInput struct {
+	MimeType string
+	Size     int64
+	Content  io.Reader
+}
+
+// UploadNewVersion zamenjuje sadrzaj postojece datoteke (zahtev 1.5, task T-24).
+//
+// Novi sadrzaj ide pod NOV kljuc, a stari se brise tek kada metapodaci budu
+// uspesno upisani. Da se pise preko starog kljuca, neuspeo upis u bazu bi
+// ostavio datoteku sa starim metapodacima i novim sadrzajem.
+func (s *FileService) UploadNewVersion(ctx context.Context, ownerID, fileID string, in NewVersionInput) (*model.File, error) {
+	if in.Size < 0 {
+		return nil, ErrInvalidName
+	}
+
+	id, err := bson.ObjectIDFromHex(fileID)
+	if err != nil {
+		return nil, ErrInvalidID
+	}
+	file, err := s.files.FindByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrFileNotFound
+		}
+		return nil, err
+	}
+	if file.OwnerID != ownerID {
+		return nil, ErrForbidden
+	}
+
+	// Kvota se proverava samo na PRIRAST. Ako je nova verzija manja ili iste
+	// velicine, korisnik ne zauzima nista novo i Users servis se ne zove.
+	if err := s.checkQuota(ctx, ownerID, in.Size-file.Size); err != nil {
+		return nil, err
+	}
+
+	mimeType := in.MimeType
+	if mimeType == "" {
+		mimeType = file.MimeType
+	}
+
+	oldKey := file.StorageKey
+	newKey := newStorageKey()
+	if err := s.store.Put(ctx, newKey, in.Content, in.Size, mimeType); err != nil {
+		return nil, err
+	}
+
+	updated := *file
+	updated.StorageKey = newKey
+	updated.Size = in.Size
+	updated.MimeType = mimeType
+	updated.Version = file.Version + 1
+	updated.UpdatedAt = time.Now().UTC()
+
+	if err := s.files.UpdateVersion(ctx, &updated); err != nil {
+		// Metapodaci nisu promenjeni, pa stara verzija i dalje vazi:
+		// brise se novi sadrzaj, stari ostaje netaknut.
+		_ = s.store.Delete(context.WithoutCancel(ctx), newKey)
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrFileNotFound
+		}
+		return nil, err
+	}
+
+	// Stari sadrzaj vise nikome ne treba. Ako brisanje ne uspe, ostaje
+	// bezopasno smece na disku - datoteka je vec ispravno azurirana.
+	_ = s.store.Delete(context.WithoutCancel(ctx), oldKey)
+
+	return &updated, nil
+}
+
+// newStorageKey pravi nov, jedinstven kljuc za sadrzaj u object store-u.
+func newStorageKey() string {
+	return bson.NewObjectID().Hex()
 }
 
 // checkQuota pita Users servis koliko je korisniku ostalo i poredi sa

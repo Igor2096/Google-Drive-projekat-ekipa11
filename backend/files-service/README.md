@@ -2,7 +2,8 @@
 
 Mikroservis za metapodatke o folderima i datotekama (Go + MongoDB).
 Pokriva: **T-10, T-11, T-12, T-13, T-20** (folderi), otpremanje datoteke
-i **T-23** (sinhrona provera kvote kod Users servisa).
+**T-23** (sinhrona provera kvote kod Users servisa)
+i **T-24** (otpremanje nove verzije datoteke).
 
 ## Struktura
 
@@ -72,7 +73,8 @@ izvuci ID korisnika i postaviti ovaj header.
 | `GET` | `/folders/root/contents` | sadrzaj korenskog foldera (T-20) |
 | `GET` | `/folders/{id}/contents` | sadrzaj foldera + breadcrumbs (T-20) |
 | `PATCH` | `/folders/{id}` | preimenovanje foldera (1.6) |
-| `POST` | `/files` | otpremanje datoteke (1.5, T-23) |
+| `POST` | `/files` | otpremanje datoteke (1.5) |
+| `PUT` | `/files/{id}` | otpremanje nove verzije datoteke (1.5, T-24) |
 
 ### Primeri
 
@@ -125,6 +127,28 @@ Kako to radi iznutra:
 
 Ako treci korak pukne, sadrzaj se brise iz storage-a - da ne ostanu bajtovi na
 koje nijedan dokument ne pokazuje. Ako pukne drugi korak, u bazi nema nicega.
+
+### Nova verzija datoteke (1.5, T-24)
+
+`PUT /files/{id}` prima isti `multipart/form-data`, ali samo polje `file`.
+Naziv, folder i ID ostaju isti - menja se sadrzaj, velicina, MIME tip,
+broj verzije i vreme poslednje izmene.
+
+```bash
+curl -X PUT localhost:8082/files/<ID datoteke> \
+  -H 'X-User-ID: dev-user-1' \
+  -F 'file=@beleske.txt'
+```
+
+Istorija verzija se **ne cuva** - specifikacija kaze da se sadrzaj zamenjuje
+i belezi vreme poslednje izmene, pa `version` sluzi samo kao brojac izmena.
+
+Novi sadrzaj se upisuje pod **nov kljuc**, a stari se brise tek kada metapodaci
+budu uspesno azurirani. Da se pise preko starog kljuca, prekid u tom trenutku
+bi ostavio datoteku sa starim metapodacima i novim sadrzajem.
+
+Kvota se proverava samo na **prirast** (`nova velicina - stara velicina`).
+Manja ili jednaka verzija ne zauzima nista novo, pa se Users servis ni ne zove.
 
 ### Provera kvote (2.5, T-23)
 
