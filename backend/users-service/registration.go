@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/mail"
+	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -21,7 +22,7 @@ type registerRequest struct {
 	ConfirmPassword string `json:"confirm_password"`
 }
 
-func RegistrationHandler(users *UserRepository, defaultStorageQuota int64) http.Handler {
+func RegistrationHandler(users *UserRepository, defaultStorageQuota int64, mailer EmailSender, appURL string, emailValidity time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -58,9 +59,31 @@ func RegistrationHandler(users *UserRepository, defaultStorageQuota int64) http.
 			http.Error(w, "Registracija nije uspela", http.StatusInternalServerError)
 			return
 		}
+		verificationToken, tokenSecret, err := GenerateEmailVerificationToken(user.ID)
+		if err != nil {
+			http.Error(w, "Generisanje linka za potvrdu nije uspelo", http.StatusInternalServerError)
+			return
+		}
+		tokenHash, err := HashPassword(tokenSecret)
+		if err != nil {
+			http.Error(w, "Generisanje linka za potvrdu nije uspelo", http.StatusInternalServerError)
+			return
+		}
+		expiresAt := time.Now().UTC().Add(emailValidity)
+		if err := users.SetEmailVerificationToken(ctx, user.ID, tokenHash, expiresAt); err != nil {
+			http.Error(w, "Registracija nije uspela", http.StatusInternalServerError)
+			return
+		}
+		confirmationURL := strings.TrimRight(appURL, "/") + "/confirm-email?token=" + url.QueryEscape(verificationToken)
+		body := "Zdravo " + user.FirstName + ",\n\nPotvrdite registraciju klikom na sledeći link:\n" + confirmationURL + "\n\nLink važi do " + expiresAt.Format(time.RFC3339) + "."
+		if err := mailer.Send(user.Email, "Potvrdite registraciju", body); err != nil {
+			_ = users.DeleteByID(ctx, user.ID)
+			http.Error(w, "Slanje email poruke nije uspelo", http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]string{"id": user.ID.Hex(), "email": user.Email, "message": "Registracija je uspešna"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": user.ID.Hex(), "email": user.Email, "message": "Registracija je uspešna. Proverite email radi potvrde naloga."})
 	})
 }
 

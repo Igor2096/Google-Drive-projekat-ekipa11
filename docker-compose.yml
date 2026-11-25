@@ -7,6 +7,12 @@ services:
     volumes:
       - mongodb_data:/data/db
 
+  mailpit:
+    image: axllent/mailpit:v1.27
+    container_name: google-drive-mailpit
+    ports:
+      - "8025:8025"
+
   cassandra:
     image: cassandra:5
     container_name: google-drive-cassandra
@@ -30,6 +36,16 @@ services:
       OTP_TTL_MINUTES: ${OTP_TTL_MINUTES}
       TOKEN_TTL_MINUTES: ${TOKEN_TTL_MINUTES}
       JWT_SECRET: ${JWT_SECRET}
+      EMAIL_VERIFICATION_TTL_HOURS: ${EMAIL_VERIFICATION_TTL_HOURS:-24}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@google-drive.local}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8081}
+    depends_on:
+      - mongodb
+      - mailpit
   files-service:
     build: ./backend/files-service
     container_name: google-drive-files-service

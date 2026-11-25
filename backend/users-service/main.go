@@ -41,13 +41,16 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mailer := NewSMTPEmailSender(config.Mail)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("/register", RegistrationHandler(users, config.DefaultStorageQuota))
-	mux.Handle("/login", LoginHandler(users, config.OTPValidity))
+	mux.Handle("/register", RegistrationHandler(users, config.DefaultStorageQuota, mailer, config.Mail.AppURL, config.EmailValidity))
+	mux.Handle("/confirm-email", ConfirmEmailHandler(users))
+	mux.Handle("/login", LoginHandler(users, config.OTPValidity, mailer))
 	mux.Handle("/verify-otp", VerifyOTPHandler(users, config.JWTSecret, config.TokenValidity))
+	mux.Handle("/users/", UserQuotaHandler(users))
 
 	log.Printf("Users servis radi na portu %s; MongoDB baza: %s", config.Port, config.MongoDatabase)
 	log.Fatal(http.ListenAndServe(":"+config.Port, mux))
