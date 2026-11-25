@@ -28,6 +28,7 @@ func (f *fakeFolders) Create(_ context.Context, folder *model.Folder) error {
 	f.items[folder.ID] = *folder
 	return nil
 }
+
 func (f *fakeFolders) FindByID(_ context.Context, id bson.ObjectID) (*model.Folder, error) {
 	folder, ok := f.items[id]
 	if !ok {
@@ -35,6 +36,7 @@ func (f *fakeFolders) FindByID(_ context.Context, id bson.ObjectID) (*model.Fold
 	}
 	return &folder, nil
 }
+
 func (f *fakeFolders) FindChildren(_ context.Context, owner string, parent *bson.ObjectID) ([]model.Folder, error) {
 	out := []model.Folder{}
 	for _, ex := range f.items {
@@ -44,18 +46,20 @@ func (f *fakeFolders) FindChildren(_ context.Context, owner string, parent *bson
 	}
 	return out, nil
 }
-func (f *fakeFolders) FindByIDs(_ context.Context, ids []bson.ObjectID) ([]model.Folder, error) {
+
+func (f *fakeFolders) FindByIDs(_ context.Context, ownerID string, ids []bson.ObjectID) ([]model.Folder, error) {
 	out := []model.Folder{}
 	for _, id := range ids {
-		if ex, ok := f.items[id]; ok {
+		if ex, ok := f.items[id]; ok && ex.OwnerID == ownerID {
 			out = append(out, ex)
 		}
 	}
 	return out, nil
 }
-func (f *fakeFolders) Rename(_ context.Context, id bson.ObjectID, name string) error {
+
+func (f *fakeFolders) Rename(_ context.Context, id bson.ObjectID, ownerID string, name string) error {
 	ex, ok := f.items[id]
-	if !ok {
+	if !ok || ex.OwnerID != ownerID {
 		return repository.ErrNotFound
 	}
 	ex.Name = name

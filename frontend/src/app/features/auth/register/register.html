@@ -1,0 +1,67 @@
+
+<div class="auth-container">
+  <h1>Kreiraj nalog</h1>
+  <p>Unesi podatke kako bi napravio svoj nalog.</p>
+
+  <form [formGroup]="registerForm" (ngSubmit)="onSubmit()">
+
+    <label for="first_name">Ime</label>
+    <input id="first_name" type="text" formControlName="first_name" />
+    @if (registerForm.controls.first_name.touched &&
+         registerForm.controls.first_name.invalid) {
+      <small>Unesi ime (maksimalno 100 karaktera).</small>
+    }
+
+    <label for="last_name">Prezime</label>
+    <input id="last_name" type="text" formControlName="last_name" />
+    @if (registerForm.controls.last_name.touched &&
+         registerForm.controls.last_name.invalid) {
+      <small>Unesi prezime (maksimalno 100 karaktera).</small>
+    }
+
+    <label for="email">Email</label>
+    <input id="email" type="email" formControlName="email" />
+    @if (registerForm.controls.email.touched &&
+         registerForm.controls.email.invalid) {
+      <small>Unesi ispravnu email adresu.</small>
+    }
+
+    <label for="password">Lozinka</label>
+    <input id="password" type="password" formControlName="password" />
+    @if (registerForm.controls.password.touched &&
+         registerForm.controls.password.invalid) {
+      <small>
+        Lozinka mora imati najmanje 8 karaktera, veliko i malo slovo,
+        broj i specijalni karakter.
+      </small>
+    }
+
+    <label for="confirm_password">Potvrdi lozinku</label>
+    <input
+      id="confirm_password"
+      type="password"
+      formControlName="confirm_password"
+    />
+    @if (registerForm.controls.confirm_password.touched &&
+         registerForm.hasError('passwordMismatch')) {
+      <small>Lozinke se ne poklapaju.</small>
+    }
+
+    @if (errorMessage) {
+      <p class="error-message">{{ errorMessage }}</p>
+    }
+
+    @if (successMessage) {
+      <p class="success-message">{{ successMessage }}</p>
+    }
+
+    <button type="submit" [disabled]="loading">
+      {{ loading ? 'Registracija...' : 'Registruj se' }}
+    </button>
+  </form>
+
+  <p>
+    Već imaš nalog?
+    <a routerLink="/login">Prijavi se</a>
+  </p>
+</div>

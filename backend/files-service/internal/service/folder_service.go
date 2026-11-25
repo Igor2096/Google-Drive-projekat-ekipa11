@@ -1,4 +1,3 @@
-// Package service - poslovna logika: validacija, provera vlasnistva, sklapanje odgovora.
 package service
 
 import (
@@ -31,8 +30,8 @@ type folderStore interface {
 	Create(ctx context.Context, f *model.Folder) error
 	FindByID(ctx context.Context, id bson.ObjectID) (*model.Folder, error)
 	FindChildren(ctx context.Context, ownerID string, parentID *bson.ObjectID) ([]model.Folder, error)
-	FindByIDs(ctx context.Context, ids []bson.ObjectID) ([]model.Folder, error)
-	Rename(ctx context.Context, id bson.ObjectID, name string) error
+	FindByIDs(ctx context.Context, ownerID string, ids []bson.ObjectID) ([]model.Folder, error)
+	Rename(ctx context.Context, id bson.ObjectID, ownerID string, name string) error
 }
 
 type fileStore interface {
@@ -48,7 +47,7 @@ func NewFolderService(folders folderStore, files fileStore) *FolderService {
 	return &FolderService{folders: folders, files: files}
 }
 
-// CreateFolder - T-12: kreiranje foldera u korenu (parentID == "") ili u podfolderu.
+// CreateFolder - kreiranje foldera u korenu ili u podfolderu.
 func (s *FolderService) CreateFolder(ctx context.Context, ownerID, name, parentID string) (*model.Folder, error) {
 	name, err := ValidateName(name)
 	if err != nil {
@@ -64,7 +63,7 @@ func (s *FolderService) CreateFolder(ctx context.Context, ownerID, name, parentI
 	folder.UpdatedAt = folder.CreatedAt
 
 	if parentID != "" {
-		// T-13: roditelj mora da postoji i da pripada korisniku.
+		// Roditelj mora da postoji i da pripada korisniku.
 		parent, err := s.getOwnedFolder(ctx, ownerID, parentID)
 		if err != nil {
 			return nil, err
@@ -79,7 +78,7 @@ func (s *FolderService) CreateFolder(ctx context.Context, ownerID, name, parentI
 	return folder, nil
 }
 
-// GetContents - T-20: podfolderi + datoteke izabranog foldera (folderID == "" => koren).
+// GetContents - podfolderi i datoteke izabranog foldera.
 func (s *FolderService) GetContents(ctx context.Context, ownerID, folderID string) (*model.FolderContents, error) {
 	result := &model.FolderContents{Breadcrumbs: []model.Breadcrumb{}}
 	var parent *bson.ObjectID
@@ -103,52 +102,62 @@ func (s *FolderService) GetContents(ctx context.Context, ownerID, folderID strin
 	if err != nil {
 		return nil, err
 	}
+
 	files, err := s.files.FindInFolder(ctx, ownerID, parent)
 	if err != nil {
 		return nil, err
 	}
+
 	result.Folders = folders
 	result.Files = files
 	return result, nil
 }
 
-// RenameFolder - deo zahteva 1.6.
+// RenameFolder - preimenovanje foldera uz proveru vlasnistva.
 func (s *FolderService) RenameFolder(ctx context.Context, ownerID, folderID, newName string) (*model.Folder, error) {
 	newName, err := ValidateName(newName)
 	if err != nil {
 		return nil, err
 	}
+
 	folder, err := s.getOwnedFolder(ctx, ownerID, folderID)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.folders.Rename(ctx, folder.ID, newName); err != nil {
+
+	if err := s.folders.Rename(ctx, folder.ID, ownerID, newName); err != nil {
 		return nil, mapRepoErr(err)
 	}
+
 	folder.Name = newName
 	folder.UpdatedAt = time.Now().UTC()
 	return folder, nil
 }
 
-// getOwnedFolder - T-13: centralno mesto za proveru vlasnistva nad folderom.
-// Kada se uvede deljenje (1.10), ovde ce se dodati i provera kod Sharing servisa.
+// getOwnedFolder - centralna provera vlasnistva nad folderom.
 func (s *FolderService) getOwnedFolder(ctx context.Context, ownerID, folderID string) (*model.Folder, error) {
 	return ownedFolder(ctx, s.folders, ownerID, folderID)
 }
 
 func (s *FolderService) breadcrumbs(ctx context.Context, folder *model.Folder) ([]model.Breadcrumb, error) {
-	ancestors, err := s.folders.FindByIDs(ctx, folder.Ancestors)
+	ancestors, err := s.folders.FindByIDs(ctx, folder.OwnerID, folder.Ancestors)
 	if err != nil {
 		return nil, err
 	}
+
 	byID := make(map[bson.ObjectID]string, len(ancestors))
 	for _, a := range ancestors {
 		byID[a.ID] = a.Name
 	}
+
 	crumbs := make([]model.Breadcrumb, 0, len(folder.Ancestors)+1)
-	for _, id := range folder.Ancestors { // redosled iz Ancestors = od korena nanize
-		crumbs = append(crumbs, model.Breadcrumb{ID: id.Hex(), Name: byID[id]})
+
+	for _, id := range folder.Ancestors {
+		if name, exists := byID[id]; exists {
+			crumbs = append(crumbs, model.Breadcrumb{ID: id.Hex(), Name: name})
+		}
 	}
+
 	crumbs = append(crumbs, model.Breadcrumb{ID: folder.ID.Hex(), Name: folder.Name})
 	return crumbs, nil
 }
@@ -156,20 +165,25 @@ func (s *FolderService) breadcrumbs(ctx context.Context, folder *model.Folder) (
 // ValidateName - serverska validacija naziva foldera/datoteke.
 func ValidateName(name string) (string, error) {
 	name = strings.TrimSpace(name)
+
 	if name == "" || name == "." || name == ".." {
 		return "", ErrInvalidName
 	}
+
 	if utf8.RuneCountInString(name) > maxNameLength {
 		return "", ErrInvalidName
 	}
+
 	if strings.ContainsAny(name, forbiddenChars) {
 		return "", ErrInvalidName
 	}
+
 	for _, r := range name {
-		if r < 0x20 || r == 0x7f { // kontrolni karakteri
+		if r < 0x20 || r == 0x7f {
 			return "", ErrInvalidName
 		}
 	}
+
 	return name, nil
 }
 
