@@ -68,7 +68,8 @@ func (f *files) FindByName(_ context.Context, owner string, folder *bson.ObjectI
 func (f *files) FindByID(_ context.Context, id bson.ObjectID) (*model.File, error) {
 	for i := range f.items {
 		if f.items[i].ID == id {
-			return &f.items[i], nil
+			found := f.items[i] // kopija, kao sto i pravi repozitorijum vraca
+			return &found, nil
 		}
 	}
 	return nil, repository.ErrNotFound
@@ -112,6 +113,8 @@ type quota struct{ available int64 }
 func (q quota) Quota(context.Context, string) (users.Quota, error) {
 	return users.Quota{StorageQuota: q.available, AvailableStorage: q.available}, nil
 }
+
+func (q quota) AddUsedStorage(context.Context, string, int64) error { return nil }
 
 // newServer sklapa isti lanac kao cmd/main.go: CORS se preskace, ali Auth ostaje.
 func newServer(maxUpload int64) (http.Handler, *memStore) {

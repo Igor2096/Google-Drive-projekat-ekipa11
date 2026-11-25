@@ -3,6 +3,7 @@ package users
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -72,5 +73,64 @@ func TestQuotaGarbageResponse(t *testing.T) {
 
 	if _, err := NewClient(srv.URL, time.Second).Quota(context.Background(), "x"); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("ocekivano ErrUnavailable, dobijeno %v", err)
+	}
+}
+
+func TestAddUsedStorage(t *testing.T) {
+	var gotPath, gotMethod, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := NewClient(srv.URL, time.Second).AddUsedStorage(context.Background(), "abc", 1234); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/users/abc/storage" {
+		t.Fatalf("%s %s", gotMethod, gotPath)
+	}
+	if gotBody != `{"delta":1234}` {
+		t.Fatalf("telo zahteva: %s", gotBody)
+	}
+}
+
+func TestAddUsedStorageNegativeDelta(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	if err := NewClient(srv.URL, time.Second).AddUsedStorage(context.Background(), "abc", -500); err != nil {
+		t.Fatal(err)
+	}
+	if gotBody != `{"delta":-500}` {
+		t.Fatalf("telo zahteva: %s", gotBody)
+	}
+}
+
+func TestAddUsedStorageErrors(t *testing.T) {
+	cases := []struct {
+		status int
+		want   error
+	}{
+		{http.StatusNotFound, ErrUserNotFound},
+		{http.StatusInternalServerError, ErrUnavailable},
+		{http.StatusMethodNotAllowed, ErrUnavailable},
+	}
+	for _, c := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(c.status)
+		}))
+		err := NewClient(srv.URL, time.Second).AddUsedStorage(context.Background(), "abc", 1)
+		srv.Close()
+		if !errors.Is(err, c.want) {
+			t.Errorf("status %d: ocekivano %v, dobijeno %v", c.status, c.want, err)
+		}
 	}
 }

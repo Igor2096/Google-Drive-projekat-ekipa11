@@ -3,7 +3,8 @@
 Mikroservis za metapodatke o folderima i datotekama (Go + MongoDB).
 Pokriva: **T-10, T-11, T-12, T-13, T-20** (folderi), otpremanje datoteke
 **T-23** (sinhrona provera kvote kod Users servisa)
-i **T-24** (otpremanje nove verzije datoteke).
+**T-24** (otpremanje nove verzije datoteke)
+i **T-25** (azuriranje zauzeca skladista korisnika).
 
 ## Struktura
 
@@ -149,6 +150,33 @@ bi ostavio datoteku sa starim metapodacima i novim sadrzajem.
 
 Kvota se proverava samo na **prirast** (`nova velicina - stara velicina`).
 Manja ili jednaka verzija ne zauzima nista novo, pa se Users servis ni ne zove.
+
+### Azuriranje zauzeca skladista (T-25)
+
+Posle svakog uspesnog otpremanja Files servis javlja Users servisu koliko se
+zauzece promenilo:
+
+```
+POST {USERS_SERVICE_URL}/users/{ownerId}/storage
+{"delta": 1234}
+```
+
+`delta` je razlika u bajtovima i moze biti negativna (manja nova verzija, a
+kasnije i brisanje datoteke). Prihvata se bilo koji 2xx odgovor.
+
+> **Za Users servis:** ovaj endpoint jos ne postoji - treba dodati rukovalac
+> koji na `POST /users/{id}/storage` uveca `used_storage` za `delta`, bez
+> spustanja ispod nule. Dok ga nema, otpremanje i dalje radi, ali se u logu
+> Files servisa pojavljuje upozorenje i `used_storage` ostaje nepromenjen.
+
+Poziv se salje **tek posto je datoteka sacuvana** i njegov neuspeh **ne obara**
+zahtev: korisniku bi inace bilo vraceno "greska" za nesto sto je proslo. Cena
+je da zauzece moze privremeno da zaostane za stvarnim stanjem. Ispravno resenje
+je ponavljanje poziva preko reda poruka (outbox), sto izlazi iz obima sprinta -
+zato se neuspeh glasno loguje.
+
+Zajedno sa T-23 ovo zatvara krug: provera kvote pre otpremanja ima smisla samo
+ako neko i uvecava zauzece posle njega.
 
 ### Provera kvote (2.5, T-23)
 

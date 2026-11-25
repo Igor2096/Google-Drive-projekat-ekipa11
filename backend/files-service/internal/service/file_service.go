@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -24,10 +25,11 @@ var (
 
 const defaultMimeType = "application/octet-stream"
 
-// quotaChecker je ono sto Files servisu treba od Users servisa.
+// usersClient je ono sto Files servisu treba od Users servisa.
 // Interfejs stoji ovde (kod potrosaca), pa se u testovima lako zameni.
-type quotaChecker interface {
+type usersClient interface {
 	Quota(ctx context.Context, userID string) (users.Quota, error)
+	AddUsedStorage(ctx context.Context, userID string, delta int64) error
 }
 
 type fileWriteStore interface {
@@ -42,10 +44,10 @@ type FileService struct {
 	folders folderStore
 	files   fileWriteStore
 	store   storage.Storage
-	quotas  quotaChecker
+	quotas  usersClient
 }
 
-func NewFileService(folders folderStore, files fileWriteStore, store storage.Storage, quotas quotaChecker) *FileService {
+func NewFileService(folders folderStore, files fileWriteStore, store storage.Storage, quotas usersClient) *FileService {
 	return &FileService{folders: folders, files: files, store: store, quotas: quotas}
 }
 
@@ -133,6 +135,10 @@ func (s *FileService) Upload(ctx context.Context, ownerID string, in UploadInput
 		}
 		return nil, err
 	}
+
+	// T-25: zauzece se uvecava tek kada je datoteka stvarno sacuvana.
+	s.reportStorageChange(ctx, ownerID, file.Size)
+
 	return file, nil
 }
 
@@ -180,7 +186,9 @@ func (s *FileService) UploadNewVersion(ctx context.Context, ownerID, fileID stri
 		mimeType = file.MimeType
 	}
 
-	oldKey := file.StorageKey
+	// Stara velicina se pamti pre izmene: od nje zavisi prijava zauzeca,
+	// a repozitorijum ne garantuje da vraceni zapis ostaje nepromenjen.
+	oldKey, oldSize := file.StorageKey, file.Size
 	newKey := newStorageKey()
 	if err := s.store.Put(ctx, newKey, in.Content, in.Size, mimeType); err != nil {
 		return nil, err
@@ -207,7 +215,28 @@ func (s *FileService) UploadNewVersion(ctx context.Context, ownerID, fileID stri
 	// bezopasno smece na disku - datoteka je vec ispravno azurirana.
 	_ = s.store.Delete(context.WithoutCancel(ctx), oldKey)
 
+	// T-25: zauzece se menja za razliku velicina; negativno ako je nova
+	// verzija manja od stare.
+	s.reportStorageChange(ctx, ownerID, updated.Size-oldSize)
+
 	return &updated, nil
+}
+
+// reportStorageChange javlja Users servisu koliko se promenilo zauzece
+// korisnika (zahtev 1.8, task T-25).
+//
+// Namerno NE obara zahtev ako poziv ne uspe: datoteka je u tom trenutku vec
+// sacuvana i korisniku bi bilo vraceno "greska" za nesto sto je proslo.
+// Posledica je da zauzece moze da zaostane za stvarnim stanjem; ispravno
+// resenje je ponavljanje poziva preko reda poruka (outbox), sto izlazi iz
+// obima ovog sprinta. Zato se neuspeh bar glasno loguje.
+func (s *FileService) reportStorageChange(ctx context.Context, ownerID string, delta int64) {
+	if delta == 0 {
+		return
+	}
+	if err := s.quotas.AddUsedStorage(context.WithoutCancel(ctx), ownerID, delta); err != nil {
+		log.Printf("UPOZORENJE: zauzece korisnika %s nije azurirano za %d bajtova: %v", ownerID, delta, err)
+	}
 }
 
 // newStorageKey pravi nov, jedinstven kljuc za sadrzaj u object store-u.

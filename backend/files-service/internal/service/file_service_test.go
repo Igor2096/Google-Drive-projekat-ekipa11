@@ -20,6 +20,10 @@ type fakeQuota struct {
 	available int64
 	err       error
 	calls     int
+	// zabelezene promene zauzeca (T-25)
+	deltas   []int64
+	addErr   error
+	addCalls int
 }
 
 func (f *fakeQuota) Quota(context.Context, string) (users.Quota, error) {
@@ -28,6 +32,15 @@ func (f *fakeQuota) Quota(context.Context, string) (users.Quota, error) {
 		return users.Quota{}, f.err
 	}
 	return users.Quota{StorageQuota: f.available, UsedStorage: 0, AvailableStorage: f.available}, nil
+}
+
+func (f *fakeQuota) AddUsedStorage(_ context.Context, _ string, delta int64) error {
+	f.addCalls++
+	if f.addErr != nil {
+		return f.addErr
+	}
+	f.deltas = append(f.deltas, delta)
+	return nil
 }
 
 // --- fake storage u memoriji ---
@@ -75,7 +88,8 @@ func (f *fakeFileStore) FindByName(_ context.Context, owner string, folder *bson
 func (f *fakeFileStore) FindByID(_ context.Context, id bson.ObjectID) (*model.File, error) {
 	for i := range f.items {
 		if f.items[i].ID == id {
-			return &f.items[i], nil
+			found := f.items[i] // kopija, kao sto i pravi repozitorijum vraca
+			return &found, nil
 		}
 	}
 	return nil, repository.ErrNotFound
@@ -423,5 +437,83 @@ func TestNewVersionCompensatesWhenMetadataFails(t *testing.T) {
 	}
 	if files.items[0].Version != 1 {
 		t.Fatal("broj verzije se ne sme uvecati ako upis nije uspeo")
+	}
+}
+
+// --- T-25: azuriranje zauzeca skladista ---
+
+func TestUploadReportsStorageUsed(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	if _, err := upload(svc, "u1", "a.txt", "", "sedam!!"); err != nil {
+		t.Fatal(err)
+	}
+	if len(quota.deltas) != 1 || quota.deltas[0] != 7 {
+		t.Fatalf("prijavljene promene zauzeca: %v, ocekivano [7]", quota.deltas)
+	}
+}
+
+func TestNewVersionReportsOnlyDifference(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	file, _ := upload(svc, "u1", "a.txt", "", "12345") // +5
+	if _, err := newVersion(svc, "u1", file.ID.Hex(), "1234567890"); err != nil {
+		t.Fatal(err)
+	}
+	if len(quota.deltas) != 2 || quota.deltas[1] != 5 {
+		t.Fatalf("prijavljene promene: %v, ocekivano [5 5]", quota.deltas)
+	}
+}
+
+func TestSmallerNewVersionReportsNegativeDelta(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	file, _ := upload(svc, "u1", "a.txt", "", "1234567890") // +10
+	if _, err := newVersion(svc, "u1", file.ID.Hex(), "123"); err != nil {
+		t.Fatal(err)
+	}
+	if len(quota.deltas) != 2 || quota.deltas[1] != -7 {
+		t.Fatalf("prijavljene promene: %v, ocekivano [10 -7]", quota.deltas)
+	}
+}
+
+// Neuspesno azuriranje zauzeca ne sme da obori otpremanje:
+// datoteka je u tom trenutku vec sacuvana.
+func TestUploadSucceedsEvenIfReportingFails(t *testing.T) {
+	svc, _, files, store, quota := newFileSvcQuota(1 << 30)
+	quota.addErr = errors.New("users servis pao")
+
+	file, err := upload(svc, "u1", "a.txt", "", "sadrzaj")
+	if err != nil {
+		t.Fatalf("otpremanje je palo zbog prijave zauzeca: %v", err)
+	}
+	if file == nil || len(files.items) != 1 || len(store.objects) != 1 {
+		t.Fatal("datoteka mora da ostane sacuvana")
+	}
+}
+
+// Nema promene velicine - nema ni poziva ka Users servisu.
+func TestNoReportWhenSizeUnchanged(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	file, _ := upload(svc, "u1", "a.txt", "", "12345")
+	callsBefore := quota.addCalls
+
+	if _, err := newVersion(svc, "u1", file.ID.Hex(), "54321"); err != nil {
+		t.Fatal(err)
+	}
+	if quota.addCalls != callsBefore {
+		t.Fatal("prijava zauzeca nije trebalo da se desi kada se velicina nije promenila")
+	}
+}
+
+func TestEmptyFileReportsNothing(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	if _, err := upload(svc, "u1", "prazno.txt", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if quota.addCalls != 0 {
+		t.Fatal("prazna datoteka ne menja zauzece")
 	}
 }
