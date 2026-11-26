@@ -21,12 +21,37 @@ func UserQuotaHandler(users *UserRepository) http.Handler {
 		const prefix = "/users/"
 		path := strings.TrimPrefix(r.URL.Path, prefix)
 		parts := strings.Split(path, "/")
-		if !strings.HasPrefix(r.URL.Path, prefix) || len(parts) != 2 || parts[0] == "" || parts[1] != "quota" {
+
+		if !strings.HasPrefix(r.URL.Path, prefix) ||
+			len(parts) != 2 ||
+			parts[0] == "" ||
+			parts[1] != "quota" {
 			http.NotFound(w, r)
 			return
 		}
 
-		userID, err := primitive.ObjectIDFromHex(parts[0])
+		requesterID := r.Header.Get("X-User-ID")
+		requesterRole := r.Header.Get("X-User-Role")
+
+		if requesterID == "" {
+			http.Error(w, "Niste autentifikovani", http.StatusUnauthorized)
+			return
+		}
+
+		var userID primitive.ObjectID
+		var err error
+
+		if parts[0] == "me" {
+			userID, err = primitive.ObjectIDFromHex(requesterID)
+		} else {
+			userID, err = primitive.ObjectIDFromHex(parts[0])
+			if err == nil && requesterRole != "admin" &&
+				!strings.EqualFold(requesterID, userID.Hex()) {
+				http.Error(w, "Nemate pravo pristupa ovoj kvoti", http.StatusForbidden)
+				return
+			}
+		}
+
 		if err != nil {
 			http.Error(w, "Neispravan ID korisnika", http.StatusBadRequest)
 			return
@@ -34,6 +59,7 @@ func UserQuotaHandler(users *UserRepository) http.Handler {
 
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
+
 		user, err := users.FindByID(ctx, userID)
 		if err != nil {
 			http.Error(w, "Korisnik nije pronađen", http.StatusNotFound)
@@ -44,6 +70,7 @@ func UserQuotaHandler(users *UserRepository) http.Handler {
 		if available < 0 {
 			available = 0
 		}
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]int64{
 			"storage_quota":     user.StorageQuota,

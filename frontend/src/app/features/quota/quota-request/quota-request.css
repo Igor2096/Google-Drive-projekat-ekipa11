@@ -1,0 +1,151 @@
+
+.quota-page {
+  max-width: 760px;
+  margin: 32px auto;
+  padding: 16px;
+}
+
+.quota-card {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.quota-icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 20px;
+  border-radius: 50%;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 28px;
+}
+
+.quota-card h2 {
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.quota-description {
+  margin: 0 0 28px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.quota-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quota-card label {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.quota-card input {
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid #747775;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 16px;
+  outline: none;
+}
+
+.quota-card input:focus {
+  border: 2px solid var(--primary);
+  padding: 0 13px;
+}
+
+.field-hint {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.quota-card button {
+  min-height: 44px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--primary);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.quota-card button:hover:not(:disabled) {
+  background: #0842a0;
+}
+
+.quota-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.message {
+  margin: 4px 0 10px;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.error-message {
+  background: #fce8e6;
+  color: var(--danger);
+}
+
+.success-message {
+  background: #e6f4ea;
+  color: #137333;
+}
+
+@media (max-width: 600px) {
+  .quota-card {
+    padding: 24px 18px;
+  }
+}
+
+
+.quota-info {
+  display: grid;
+  gap: 0;
+  margin-bottom: 28px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.quota-info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.quota-info-item:last-child {
+  border-bottom: 0;
+}
+
+.quota-info-item span {
+  color: var(--muted);
+}
+
+.quota-info-item strong {
+  font-weight: 600;
+}

@@ -23,7 +23,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID, X-User-Role")
 		}
 
 		if r.Method == http.MethodOptions {
@@ -69,18 +69,34 @@ func main() {
 		log.Fatal("JWT_SECRET is not defined!")
 	}
 
-	// Health check ostaje javno dostupan.
 	http.HandleFunc("/health", healthHandler)
 
-	// Users servis: registracija, login i OTP verifikacija su javni.
 	usersProxy := createProxy(usersServiceURL, "/api/users")
+
+	// Javne rute: registracija, login, OTP i slično.
 	http.Handle("/api/users/", usersProxy)
 
-	// Files servis: zahteva validan JWT token.
+	// Korisničke kvote: potreban je validan JWT.
+	userQuotaProxy := authMiddleware(jwtSecret, usersProxy)
+	http.Handle("/api/users/users/", userQuotaProxy)
+
+	// Zahtevi za kvotu: potreban je validan JWT.
+	quotaRequestsProxy := authMiddleware(jwtSecret, usersProxy)
+	http.Handle("/api/users/quota-requests", quotaRequestsProxy)
+	http.Handle("/api/users/quota-requests/", quotaRequestsProxy)
+
+	// Administratorske rute.
+	adminUsersProxy := adminAuthMiddleware(jwtSecret, usersProxy)
+	http.Handle("/api/users/admin/users", adminUsersProxy)
+	http.Handle("/api/users/admin/users/", adminUsersProxy)
+	http.Handle("/api/users/admin/quota-requests", adminUsersProxy)
+	http.Handle("/api/users/admin/quota-requests/", adminUsersProxy)
+
+	// Files servis.
 	filesProxy := createProxy(filesServiceURL, "/api/files")
 	http.Handle("/api/files/", authMiddleware(jwtSecret, filesProxy))
 
-	// Notifications servis: zahteva validan JWT token.
+	// Notifications servis.
 	notificationsProxy := createProxy(notificationsServiceURL, "/api/notifications")
 	http.Handle("/api/notifications/", authMiddleware(jwtSecret, notificationsProxy))
 
@@ -88,8 +104,7 @@ func main() {
 
 	handler := corsMiddleware(http.DefaultServeMux)
 
-	err := http.ListenAndServe(":"+gatewayPort, handler)
-	if err != nil {
+	if err := http.ListenAndServe(":"+gatewayPort, handler); err != nil {
 		log.Fatal("Server error:", err)
 	}
 }

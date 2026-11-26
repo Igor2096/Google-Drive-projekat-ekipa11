@@ -1,0 +1,70 @@
+
+<section class="quota-page">
+  <div class="quota-card">
+    <div class="quota-icon">☁</div>
+
+    <h2>Zahtev za povećanje prostora</h2>
+
+    <p class="quota-description">
+      Pregledajte trenutno stanje skladišta i zatražite povećanje ukupne kvote.
+    </p>
+
+    @if (quotaLoading()) {
+      <p class="field-hint">Učitavanje podataka o kvoti...</p>
+    } @else if (quotaError()) {
+      <p class="message error-message">{{ quotaError() }}</p>
+    } @else if (quota(); as q) {
+      <div class="quota-info">
+        <div class="quota-info-item">
+          <span>Ukupna kvota</span>
+          <strong>{{ formatGiB(q.storage_quota) }} GiB</strong>
+        </div>
+
+        <div class="quota-info-item">
+          <span>Zauzeti prostor</span>
+          <strong>{{ formatGiB(q.used_storage) }} GiB</strong>
+        </div>
+
+        <div class="quota-info-item">
+          <span>Dostupan prostor</span>
+          <strong>{{ formatGiB(q.available_storage) }} GiB</strong>
+        </div>
+      </div>
+    }
+
+    <form (ngSubmit)="submitRequest()">
+      <label for="requestedQuota">Željena ukupna kvota (GiB)</label>
+
+      <input
+        id="requestedQuota"
+        type="number"
+        name="requestedQuota"
+        [(ngModel)]="requestedQuota"
+        min="0.01"
+        step="0.01"
+        placeholder="Npr. 10"
+        required
+        [disabled]="loading() || quotaLoading() || !!quotaError() || !quota()"
+      />
+
+      <p class="field-hint">
+        Unesite ukupnu kvotu koju želite, a ne količinu dodatnog prostora.
+      </p>
+
+      @if (errorMessage()) {
+        <p class="message error-message">{{ errorMessage() }}</p>
+      }
+
+      @if (successMessage()) {
+        <p class="message success-message">{{ successMessage() }}</p>
+      }
+
+      <button
+        type="submit"
+        [disabled]="loading() || quotaLoading() || !!quotaError() || !quota()"
+      >
+        {{ loading() ? 'Slanje...' : 'Pošalji zahtev' }}
+      </button>
+    </form>
+  </div>
+</section>

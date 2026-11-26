@@ -1,0 +1,121 @@
+
+<section class="admin-page">
+  <header class="admin-header">
+    <div>
+      <h1>Administracija</h1>
+      <p>Pregled korisnika i zahteva za povećanje prostora.</p>
+    </div>
+
+    <button type="button" (click)="loadData()">Osveži podatke</button>
+  </header>
+
+  @if (loading()) {
+    <p class="info-message">Učitavanje podataka...</p>
+  }
+
+  @if (errorMessage()) {
+    <p class="message error">{{ errorMessage() }}</p>
+  }
+
+  @if (successMessage()) {
+    <p class="message success">{{ successMessage() }}</p>
+  }
+
+  <section class="admin-section">
+    <h2>Korisnici</h2>
+
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Ime i prezime</th>
+            <th>Email</th>
+            <th>Uloga</th>
+            <th>Ukupna kvota</th>
+            <th>Zauzeto</th>
+            <th>Dostupno</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          @for (user of users(); track user.id) {
+            <tr>
+              <td>{{ user.first_name }} {{ user.last_name }}</td>
+              <td>{{ user.email }}</td>
+              <td>{{ user.role }}</td>
+              <td>{{ formatGiB(user.storage_quota) }} GiB</td>
+              <td>{{ formatGiB(user.used_storage) }} GiB</td>
+              <td>{{ formatGiB(user.available_storage) }} GiB</td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="6">Nema korisnika za prikaz.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="admin-section">
+    <h2>Zahtevi za povećanje prostora</h2>
+
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Korisnik ID</th>
+            <th>Tražena kvota</th>
+            <th>Status</th>
+            <th>Datum</th>
+            <th>Akcije</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          @for (request of requests(); track request.id) {
+            <tr>
+              <td>{{ request.user_id }}</td>
+              <td>{{ formatGiB(request.requested_quota) }} GiB</td>
+              <td>
+                <span class="status" [class.pending]="request.status === 'pending'"
+                  [class.approved]="request.status === 'approved'"
+                  [class.rejected]="request.status === 'rejected'">
+                  {{ request.status }}
+                </span>
+              </td>
+              <td>{{ formatDate(request.created_at) }}</td>
+              <td>
+                @if (request.status === 'pending') {
+                  <div class="actions">
+                    <button
+                      type="button"
+                      class="approve-button"
+                      [disabled]="processingId() === request.id"
+                      (click)="updateRequest(request, 'approved')">
+                      Odobri
+                    </button>
+
+                    <button
+                      type="button"
+                      class="reject-button"
+                      [disabled]="processingId() === request.id"
+                      (click)="updateRequest(request, 'rejected')">
+                      Odbij
+                    </button>
+                  </div>
+                } @else {
+                  <span>Obrađeno</span>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="5">Nema zahteva za prikaz.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
