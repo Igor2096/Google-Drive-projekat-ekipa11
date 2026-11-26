@@ -104,8 +104,13 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrNotFound), errors.Is(err, service.ErrFileNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, service.ErrForbidden):
+	case errors.Is(err, service.ErrForbidden), errors.Is(err, service.ErrUnknownUser):
 		writeError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, service.ErrQuotaExceeded):
+		// 507 Insufficient Storage - korisnik je popunio svoju kvotu (2.5)
+		writeError(w, http.StatusInsufficientStorage, err.Error())
+	case errors.Is(err, service.ErrUsersUnavailable):
+		writeError(w, http.StatusServiceUnavailable, err.Error())
 	case errors.Is(err, service.ErrDuplicate), errors.Is(err, service.ErrFileDuplicate):
 		writeError(w, http.StatusConflict, err.Error())
 	default:

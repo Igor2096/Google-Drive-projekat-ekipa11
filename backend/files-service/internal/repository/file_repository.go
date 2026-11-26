@@ -71,3 +71,45 @@ func (r *FileRepository) FindByName(ctx context.Context, ownerID string, folderI
 	}
 	return &f, nil
 }
+
+// FindByID vraca metapodatke jedne datoteke (T-24).
+func (r *FileRepository) FindByID(ctx context.Context, id bson.ObjectID) (*model.File, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	var f model.File
+	err := r.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&f)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+// UpdateVersion upisuje novu verziju datoteke: novi sadrzaj (storageKey),
+// nova velicina i tip, uvecan broj verzije i vreme izmene (T-24).
+// Naziv, vlasnik i folder se ne menjaju - to je i dalje ista datoteka.
+func (r *FileRepository) UpdateVersion(ctx context.Context, f *model.File) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	res, err := r.coll.UpdateOne(ctx,
+		bson.M{"_id": f.ID},
+		bson.M{"$set": bson.M{
+			"storageKey": f.StorageKey,
+			"size":       f.Size,
+			"mimeType":   f.MimeType,
+			"version":    f.Version,
+			"updatedAt":  f.UpdatedAt,
+		}},
+	)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

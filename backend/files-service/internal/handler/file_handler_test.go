@@ -18,6 +18,7 @@ import (
 	"files-service/internal/model"
 	"files-service/internal/repository"
 	"files-service/internal/service"
+	"files-service/internal/users"
 )
 
 // --- minimalni fake-ovi, da test ne zahteva Mongo ni disk ---
@@ -64,6 +65,24 @@ func (f *files) FindByName(_ context.Context, owner string, folder *bson.ObjectI
 	return nil, repository.ErrNotFound
 }
 
+func (f *files) FindByID(_ context.Context, id bson.ObjectID) (*model.File, error) {
+	for i := range f.items {
+		if f.items[i].ID == id {
+			found := f.items[i] // kopija, kao sto i pravi repozitorijum vraca
+			return &found, nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+func (f *files) UpdateVersion(_ context.Context, file *model.File) error {
+	for i := range f.items {
+		if f.items[i].ID == file.ID {
+			f.items[i] = *file
+			return nil
+		}
+	}
+	return repository.ErrNotFound
+}
 func (f *files) Create(_ context.Context, file *model.File) error {
 	f.items = append(f.items, *file)
 	return nil
@@ -88,13 +107,27 @@ func (m *memStore) Delete(_ context.Context, key string) error {
 	return nil
 }
 
+// quota je fake Users servis: uvek kaze koliko je prostora ostalo.
+type quota struct{ available int64 }
+
+func (q quota) Quota(context.Context, string) (users.Quota, error) {
+	return users.Quota{StorageQuota: q.available, AvailableStorage: q.available}, nil
+}
+
+func (q quota) AddUsedStorage(context.Context, string, int64) error { return nil }
+
 // newServer sklapa isti lanac kao cmd/main.go: CORS se preskace, ali Auth ostaje.
 func newServer(maxUpload int64) (http.Handler, *memStore) {
+	return newServerQuota(maxUpload, 1<<30)
+}
+
+func newServerQuota(maxUpload, available int64) (http.Handler, *memStore) {
 	store := &memStore{objects: map[string][]byte{}}
 	svc := service.NewFileService(
 		&folders{items: map[bson.ObjectID]model.Folder{}},
 		&files{},
 		store,
+		quota{available: available},
 	)
 
 	api := http.NewServeMux()
@@ -232,5 +265,64 @@ func TestUploadStripsPathFromFilename(t *testing.T) {
 
 	if got.Name != "slika.png" {
 		t.Fatalf("naziv %q", got.Name)
+	}
+}
+
+// Kada korisnik nema dovoljno prostora, servis vraca 507 Insufficient Storage.
+func TestUploadOverQuotaReturns507(t *testing.T) {
+	h, store := newServerQuota(1<<20, 3)
+
+	rec := post(t, h, "u1", "file", "veliko.txt", "mnogo vise od tri bajta")
+	if rec.Code != http.StatusInsufficientStorage {
+		t.Fatalf("status %d, telo: %s", rec.Code, rec.Body.String())
+	}
+	if len(store.objects) != 0 {
+		t.Fatal("sadrzaj nije smeo da dodje do storage-a")
+	}
+}
+
+// --- T-24 preko HTTP-a ---
+
+func put(t *testing.T, h http.Handler, userID, fileID, content string) *httptest.ResponseRecorder {
+	t.Helper()
+	contentType, body := multipartBody(t, "file", "nova.txt", content, "")
+	req := httptest.NewRequest(http.MethodPut, "/files/"+fileID, body)
+	req.Header.Set("Content-Type", contentType)
+	if userID != "" {
+		req.Header.Set(middleware.UserIDHeader, userID)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestNewVersionOverHTTP(t *testing.T) {
+	h, store := newServer(1 << 20)
+
+	rec := post(t, h, "u1", "file", "rad.txt", "prva")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("otpremanje: status %d", rec.Code)
+	}
+	var first model.File
+	_ = json.Unmarshal(rec.Body.Bytes(), &first)
+
+	rec = put(t, h, "u1", first.ID.Hex(), "druga verzija")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("nova verzija: status %d, telo: %s", rec.Code, rec.Body.String())
+	}
+	var second model.File
+	_ = json.Unmarshal(rec.Body.Bytes(), &second)
+	if second.Version != 2 || second.Name != "rad.txt" {
+		t.Fatalf("los odgovor: %+v", second)
+	}
+	if len(store.objects) != 1 {
+		t.Fatalf("ocekivan jedan objekat u storage-u, ima %d", len(store.objects))
+	}
+}
+
+func TestNewVersionOfMissingFileReturns404(t *testing.T) {
+	h, _ := newServer(1 << 20)
+	if rec := put(t, h, "u1", bson.NewObjectID().Hex(), "x"); rec.Code != http.StatusNotFound {
+		t.Fatalf("status %d, telo: %s", rec.Code, rec.Body.String())
 	}
 }

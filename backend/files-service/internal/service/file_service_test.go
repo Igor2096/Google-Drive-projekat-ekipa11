@@ -11,7 +11,37 @@ import (
 
 	"files-service/internal/model"
 	"files-service/internal/repository"
+	"files-service/internal/users"
 )
+
+// --- fake Users servis ---
+
+type fakeQuota struct {
+	available int64
+	err       error
+	calls     int
+	// zabelezene promene zauzeca (T-25)
+	deltas   []int64
+	addErr   error
+	addCalls int
+}
+
+func (f *fakeQuota) Quota(context.Context, string) (users.Quota, error) {
+	f.calls++
+	if f.err != nil {
+		return users.Quota{}, f.err
+	}
+	return users.Quota{StorageQuota: f.available, UsedStorage: 0, AvailableStorage: f.available}, nil
+}
+
+func (f *fakeQuota) AddUsedStorage(_ context.Context, _ string, delta int64) error {
+	f.addCalls++
+	if f.addErr != nil {
+		return f.addErr
+	}
+	f.deltas = append(f.deltas, delta)
+	return nil
+}
 
 // --- fake storage u memoriji ---
 
@@ -44,6 +74,7 @@ func (f *fakeStorage) Delete(_ context.Context, key string) error {
 type fakeFileStore struct {
 	items      []model.File
 	failCreate error
+	failUpdate error
 }
 
 func (f *fakeFileStore) FindByName(_ context.Context, owner string, folder *bson.ObjectID, name string) (*model.File, error) {
@@ -54,6 +85,27 @@ func (f *fakeFileStore) FindByName(_ context.Context, owner string, folder *bson
 	}
 	return nil, repository.ErrNotFound
 }
+func (f *fakeFileStore) FindByID(_ context.Context, id bson.ObjectID) (*model.File, error) {
+	for i := range f.items {
+		if f.items[i].ID == id {
+			found := f.items[i] // kopija, kao sto i pravi repozitorijum vraca
+			return &found, nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+func (f *fakeFileStore) UpdateVersion(_ context.Context, file *model.File) error {
+	if f.failUpdate != nil {
+		return f.failUpdate
+	}
+	for i := range f.items {
+		if f.items[i].ID == file.ID {
+			f.items[i] = *file
+			return nil
+		}
+	}
+	return repository.ErrNotFound
+}
 func (f *fakeFileStore) Create(_ context.Context, file *model.File) error {
 	if f.failCreate != nil {
 		return f.failCreate
@@ -63,10 +115,16 @@ func (f *fakeFileStore) Create(_ context.Context, file *model.File) error {
 }
 
 func newFileSvc() (*FileService, *fakeFolders, *fakeFileStore, *fakeStorage) {
+	svc, folders, files, store, _ := newFileSvcQuota(1 << 30) // 1 GB, dovoljno za sve testove
+	return svc, folders, files, store
+}
+
+func newFileSvcQuota(available int64) (*FileService, *fakeFolders, *fakeFileStore, *fakeStorage, *fakeQuota) {
 	folders := &fakeFolders{items: map[bson.ObjectID]model.Folder{}}
 	files := &fakeFileStore{}
 	store := newFakeStorage()
-	return NewFileService(folders, files, store), folders, files, store
+	quota := &fakeQuota{available: available}
+	return NewFileService(folders, files, store, quota), folders, files, store, quota
 }
 
 func upload(svc *FileService, owner, name, folderID, body string) (*model.File, error) {
@@ -94,8 +152,10 @@ func TestUploadToRoot(t *testing.T) {
 	if file.Version != 1 || file.Size != 6 || file.MimeType != "text/plain" {
 		t.Fatalf("losi metapodaci: %+v", file)
 	}
-	if file.StorageKey != file.ID.Hex() {
-		t.Fatalf("StorageKey %q ne odgovara ID-u %q", file.StorageKey, file.ID.Hex())
+	// Od T-24 kljuc sadrzaja vise nije vezan za ID dokumenta: svaka verzija
+	// dobija svoj kljuc, da neuspeo upis u bazu ne pregazi staru verziju.
+	if file.StorageKey == "" {
+		t.Fatal("StorageKey nije postavljen")
 	}
 	if store.objects[file.StorageKey] != "zdravo" {
 		t.Fatal("sadrzaj nije stigao u storage")
@@ -188,5 +248,272 @@ func TestUploadStorageFailureLeavesNoMetadata(t *testing.T) {
 	}
 	if len(files.items) != 0 {
 		t.Fatal("metapodaci su upisani iako sadrzaj nije")
+	}
+}
+
+// --- T-23: provera kvote kod Users servisa ---
+
+func TestUploadRejectedWhenOverQuota(t *testing.T) {
+	svc, _, files, store, quota := newFileSvcQuota(5)
+
+	_, err := upload(svc, "u1", "veliko.txt", "", "deset bajt")
+	if !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("ocekivano ErrQuotaExceeded, dobijeno %v", err)
+	}
+	if quota.calls != 1 {
+		t.Fatalf("Users servis je pozvan %d puta", quota.calls)
+	}
+	if len(store.objects) != 0 || len(files.items) != 0 {
+		t.Fatal("nista nije smelo da se upise kada kvota nije dovoljna")
+	}
+}
+
+func TestUploadAllowedWhenExactlyFits(t *testing.T) {
+	svc, _, _, _, _ := newFileSvcQuota(6)
+	if _, err := upload(svc, "u1", "tacno.txt", "", "zdravo"); err != nil {
+		t.Fatalf("datoteka koja tacno staje je odbijena: %v", err)
+	}
+}
+
+func TestUploadRejectedWhenUsersServiceDown(t *testing.T) {
+	svc, _, files, store, quota := newFileSvcQuota(1 << 30)
+	quota.err = users.ErrUnavailable
+
+	if _, err := upload(svc, "u1", "a.txt", "", "x"); !errors.Is(err, ErrUsersUnavailable) {
+		t.Fatalf("ocekivano ErrUsersUnavailable, dobijeno %v", err)
+	}
+	if len(store.objects) != 0 || len(files.items) != 0 {
+		t.Fatal("bez potvrdjene kvote nista ne sme da se upise")
+	}
+}
+
+func TestUploadRejectedForUnknownUser(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+	quota.err = users.ErrUserNotFound
+
+	if _, err := upload(svc, "nepostojeci", "a.txt", "", "x"); !errors.Is(err, ErrUnknownUser) {
+		t.Fatalf("ocekivano ErrUnknownUser, dobijeno %v", err)
+	}
+}
+
+// Prazna datoteka ne zauzima prostor, pa nema razloga zvati Users servis.
+func TestEmptyFileSkipsQuotaCall(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(0)
+
+	if _, err := upload(svc, "u1", "prazno.txt", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if quota.calls != 0 {
+		t.Fatalf("Users servis nije trebalo zvati, pozvan %d puta", quota.calls)
+	}
+}
+
+// Lokalne provere (naziv, vlasnistvo) moraju da se dese pre mreznog poziva.
+func TestBadRequestDoesNotCallUsersService(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	_, _ = upload(svc, "u1", "a/b.txt", "", "x")                     // nevalidan naziv
+	_, _ = upload(svc, "u1", "a.txt", bson.NewObjectID().Hex(), "x") // nepostojeci folder
+	if quota.calls != 0 {
+		t.Fatalf("Users servis je pozvan %d puta, a nije trebalo nijednom", quota.calls)
+	}
+}
+
+// --- T-24: otpremanje nove verzije ---
+
+func newVersion(svc *FileService, owner, fileID, body string) (*model.File, error) {
+	return svc.UploadNewVersion(context.Background(), owner, fileID, NewVersionInput{
+		MimeType: "text/plain",
+		Size:     int64(len(body)),
+		Content:  strings.NewReader(body),
+	})
+}
+
+func TestNewVersionReplacesContent(t *testing.T) {
+	svc, _, files, store, _ := newFileSvcQuota(1 << 30)
+
+	first, err := upload(svc, "u1", "rad.txt", "", "prva verzija")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldKey := first.StorageKey
+
+	second, err := newVersion(svc, "u1", first.ID.Hex(), "druga")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if second.Version != 2 {
+		t.Fatalf("verzija je %d, ocekivano 2", second.Version)
+	}
+	if second.Name != "rad.txt" || second.ID != first.ID {
+		t.Fatal("nova verzija mora da zadrzi naziv i ID iste datoteke")
+	}
+	if second.Size != 5 {
+		t.Fatalf("velicina je %d, ocekivano 5", second.Size)
+	}
+	if !second.UpdatedAt.After(first.UpdatedAt) && !second.UpdatedAt.Equal(first.UpdatedAt) {
+		t.Fatal("vreme poslednje izmene nije zabelezeno")
+	}
+	if store.objects[second.StorageKey] != "druga" {
+		t.Fatal("novi sadrzaj nije upisan")
+	}
+	if _, ostao := store.objects[oldKey]; ostao {
+		t.Fatal("stari sadrzaj je trebalo obrisati")
+	}
+	if len(store.objects) != 1 || len(files.items) != 1 {
+		t.Fatalf("ocekivana jedna datoteka, imamo %d objekata i %d zapisa", len(store.objects), len(files.items))
+	}
+}
+
+func TestNewVersionChecksOwnership(t *testing.T) {
+	svc, _, _, _, _ := newFileSvcQuota(1 << 30)
+	file, _ := upload(svc, "u1", "moje.txt", "", "sadrzaj")
+
+	if _, err := newVersion(svc, "u2", file.ID.Hex(), "upad"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("ocekivano ErrForbidden, dobijeno %v", err)
+	}
+	if _, err := newVersion(svc, "u1", bson.NewObjectID().Hex(), "x"); !errors.Is(err, ErrFileNotFound) {
+		t.Fatalf("ocekivano ErrFileNotFound, dobijeno %v", err)
+	}
+	if _, err := newVersion(svc, "u1", "nije-id", "x"); !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("ocekivano ErrInvalidID, dobijeno %v", err)
+	}
+}
+
+// Kvota se gleda samo na prirast: manja verzija ne trosi nista novo.
+func TestNewVersionQuotaCountsOnlyGrowth(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(10)
+
+	file, err := upload(svc, "u1", "a.txt", "", "0123456789") // potroseno svih 10
+	if err != nil {
+		t.Fatal(err)
+	}
+	quota.available = 0 // nema vise slobodnog prostora
+	callsBefore := quota.calls
+
+	if _, err := newVersion(svc, "u1", file.ID.Hex(), "kratko"); err != nil {
+		t.Fatalf("manja verzija je odbijena: %v", err)
+	}
+	if quota.calls != callsBefore {
+		t.Fatal("Users servis nije trebalo zvati kada nova verzija ne zauzima vise")
+	}
+}
+
+func TestNewVersionRejectedWhenGrowthExceedsQuota(t *testing.T) {
+	svc, _, _, store, quota := newFileSvcQuota(1 << 30)
+
+	file, _ := upload(svc, "u1", "a.txt", "", "malo")
+	oldKey := file.StorageKey
+	quota.available = 2 // staje jos samo 2 bajta
+
+	if _, err := newVersion(svc, "u1", file.ID.Hex(), "mnogo duzi sadrzaj"); !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("ocekivano ErrQuotaExceeded, dobijeno %v", err)
+	}
+	if store.objects[oldKey] != "malo" {
+		t.Fatal("stara verzija mora da ostane netaknuta")
+	}
+	if len(store.objects) != 1 {
+		t.Fatal("novi sadrzaj nije smeo da ostane u storage-u")
+	}
+}
+
+// Ako upis metapodataka pukne, stara verzija mora da ostane ispravna.
+func TestNewVersionCompensatesWhenMetadataFails(t *testing.T) {
+	svc, _, files, store, _ := newFileSvcQuota(1 << 30)
+
+	file, _ := upload(svc, "u1", "a.txt", "", "stara")
+	oldKey := file.StorageKey
+	files.failUpdate = errors.New("baza nije dostupna")
+
+	if _, err := newVersion(svc, "u1", file.ID.Hex(), "nova"); err == nil {
+		t.Fatal("ocekivana greska")
+	}
+	if store.objects[oldKey] != "stara" {
+		t.Fatal("stari sadrzaj je izgubljen")
+	}
+	if len(store.objects) != 1 {
+		t.Fatalf("u storage-u je ostalo sirce: %v", store.objects)
+	}
+	if files.items[0].Version != 1 {
+		t.Fatal("broj verzije se ne sme uvecati ako upis nije uspeo")
+	}
+}
+
+// --- T-25: azuriranje zauzeca skladista ---
+
+func TestUploadReportsStorageUsed(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	if _, err := upload(svc, "u1", "a.txt", "", "sedam!!"); err != nil {
+		t.Fatal(err)
+	}
+	if len(quota.deltas) != 1 || quota.deltas[0] != 7 {
+		t.Fatalf("prijavljene promene zauzeca: %v, ocekivano [7]", quota.deltas)
+	}
+}
+
+func TestNewVersionReportsOnlyDifference(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	file, _ := upload(svc, "u1", "a.txt", "", "12345") // +5
+	if _, err := newVersion(svc, "u1", file.ID.Hex(), "1234567890"); err != nil {
+		t.Fatal(err)
+	}
+	if len(quota.deltas) != 2 || quota.deltas[1] != 5 {
+		t.Fatalf("prijavljene promene: %v, ocekivano [5 5]", quota.deltas)
+	}
+}
+
+func TestSmallerNewVersionReportsNegativeDelta(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	file, _ := upload(svc, "u1", "a.txt", "", "1234567890") // +10
+	if _, err := newVersion(svc, "u1", file.ID.Hex(), "123"); err != nil {
+		t.Fatal(err)
+	}
+	if len(quota.deltas) != 2 || quota.deltas[1] != -7 {
+		t.Fatalf("prijavljene promene: %v, ocekivano [10 -7]", quota.deltas)
+	}
+}
+
+// Neuspesno azuriranje zauzeca ne sme da obori otpremanje:
+// datoteka je u tom trenutku vec sacuvana.
+func TestUploadSucceedsEvenIfReportingFails(t *testing.T) {
+	svc, _, files, store, quota := newFileSvcQuota(1 << 30)
+	quota.addErr = errors.New("users servis pao")
+
+	file, err := upload(svc, "u1", "a.txt", "", "sadrzaj")
+	if err != nil {
+		t.Fatalf("otpremanje je palo zbog prijave zauzeca: %v", err)
+	}
+	if file == nil || len(files.items) != 1 || len(store.objects) != 1 {
+		t.Fatal("datoteka mora da ostane sacuvana")
+	}
+}
+
+// Nema promene velicine - nema ni poziva ka Users servisu.
+func TestNoReportWhenSizeUnchanged(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	file, _ := upload(svc, "u1", "a.txt", "", "12345")
+	callsBefore := quota.addCalls
+
+	if _, err := newVersion(svc, "u1", file.ID.Hex(), "54321"); err != nil {
+		t.Fatal(err)
+	}
+	if quota.addCalls != callsBefore {
+		t.Fatal("prijava zauzeca nije trebalo da se desi kada se velicina nije promenila")
+	}
+}
+
+func TestEmptyFileReportsNothing(t *testing.T) {
+	svc, _, _, _, quota := newFileSvcQuota(1 << 30)
+
+	if _, err := upload(svc, "u1", "prazno.txt", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if quota.addCalls != 0 {
+		t.Fatal("prazna datoteka ne menja zauzece")
 	}
 }
