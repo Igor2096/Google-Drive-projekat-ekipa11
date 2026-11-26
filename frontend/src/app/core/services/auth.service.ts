@@ -22,6 +22,22 @@ export interface VerifyOtpRequest {
   otp: string;
 }
 
+export interface ChangePasswordRequest {
+  email: string;
+  old_password: string;
+  new_password: string;
+}
+
+export interface PasswordResetRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  password: string;
+  confirm_password: string;
+}
+
 export interface AuthResponse {
   access_token: string;
   token_type: string;
@@ -84,5 +100,17 @@ export class AuthService {
       `${this.baseUrl}/verify-otp`,
       data,
     );
+  }
+
+  changePassword(data: ChangePasswordRequest): Observable<unknown> {
+    return this.http.post(`${this.baseUrl}/change-password`, data);
+  }
+
+  requestPasswordReset(data: PasswordResetRequest): Observable<unknown> {
+    return this.http.post(`${this.baseUrl}/forgot-password`, data);
+  }
+
+  resetPassword(data: ResetPasswordRequest): Observable<unknown> {
+    return this.http.post(`${this.baseUrl}/reset-password`, data);
   }
 }

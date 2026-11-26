@@ -156,12 +156,46 @@ func (r *UserRepository) DeleteByID(
 	return err
 }
 
-func (r *UserRepository) SetLoginOTP(
-	ctx context.Context,
-	userID primitive.ObjectID,
-	otpHash string,
-	expiresAt time.Time,
-) error {
+func (r *UserRepository) UpdatePassword(ctx context.Context, userID primitive.ObjectID, passwordHash string) error {
+	now := time.Now().UTC()
+	_, err := r.collection.UpdateByID(ctx, userID, bson.M{"$set": bson.M{
+		"password_hash":       passwordHash,
+		"password_changed_at": now,
+		"updated_at":          now,
+	}})
+	return err
+}
+
+func (r *UserRepository) SetPasswordResetToken(ctx context.Context, userID primitive.ObjectID, tokenHash string, expiresAt time.Time) error {
+	_, err := r.collection.UpdateByID(ctx, userID, bson.M{"$set": bson.M{
+		"password_reset_token_hash": tokenHash,
+		"password_reset_expires_at": expiresAt,
+		"updated_at":                time.Now().UTC(),
+	}})
+	return err
+}
+
+func (r *UserRepository) ResetPassword(ctx context.Context, userID primitive.ObjectID, tokenHash, passwordHash string) (bool, error) {
+	now := time.Now().UTC()
+	result, err := r.collection.UpdateOne(ctx, bson.M{
+		"_id":                       userID,
+		"password_reset_token_hash": tokenHash,
+		"password_reset_expires_at": bson.M{"$gt": now},
+	}, bson.M{
+		"$set": bson.M{
+			"password_hash":       passwordHash,
+			"password_changed_at": now,
+			"updated_at":          now,
+		},
+		"$unset": bson.M{"password_reset_token_hash": "", "password_reset_expires_at": ""},
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.MatchedCount == 1, nil
+}
+
+func (r *UserRepository) SetLoginOTP(ctx context.Context, userID primitive.ObjectID, otpHash string, expiresAt time.Time) error {
 	_, err := r.collection.UpdateByID(ctx, userID, bson.M{"$set": bson.M{
 		"otp_hash":       otpHash,
 		"otp_expires_at": expiresAt,

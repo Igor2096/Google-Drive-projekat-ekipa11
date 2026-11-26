@@ -44,6 +44,10 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-noreply@google-drive.local}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8081}
+      PASSWORD_CHANGE_MIN_AGE_HOURS: ${PASSWORD_CHANGE_MIN_AGE_HOURS:-24}
+      PASSWORD_RESET_TTL_MINUTES: ${PASSWORD_RESET_TTL_MINUTES:-30}
+      PASSWORD_MAX_AGE_DAYS: ${PASSWORD_MAX_AGE_DAYS:-60}
+      PASSWORD_MAX_AGE_MINUTES: ${PASSWORD_MAX_AGE_MINUTES:-}
     depends_on:
       - mongodb
       - mailpit
@@ -53,6 +57,7 @@ services:
     container_name: google-drive-files-service
     environment:
       FILES_SERVICE_PORT: ${FILES_SERVICE_PORT:-8082}
+      USERS_SERVICE_URL: http://users-service:8081
       MONGO_URI: ${MONGO_URI:-mongodb://mongodb:27017}
       FILES_DB_NAME: ${FILES_DB_NAME:-files_db}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
@@ -64,6 +69,7 @@ services:
       - files_data:/data/files
     depends_on:
       - mongodb
+      - users-service
 
   api-gateway:
     build:
