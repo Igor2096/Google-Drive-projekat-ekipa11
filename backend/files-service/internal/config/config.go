@@ -19,6 +19,7 @@ type Config struct {
 	MaxUploadSize   int64         // najveca dozvoljena velicina jednog zahteva za otpremanje
 	UsersServiceURL string        // adresa Users servisa (provera kvote, T-23)
 	UsersTimeout    time.Duration // koliko se ceka odgovor Users servisa
+	AllowedTypes    []string      // bela lista MIME tipova; prazno = podrazumevana lista u kodu
 }
 
 func Load() Config {
@@ -34,6 +35,7 @@ func Load() Config {
 		// JWT korisnika, a Files servis nema korisnikov token.
 		UsersServiceURL: getEnv("USERS_SERVICE_URL", "http://localhost:8081"),
 		UsersTimeout:    getDuration("USERS_TIMEOUT", 3*time.Second),
+		AllowedTypes:    splitNonEmpty(getEnv("ALLOWED_FILE_TYPES", "")),
 	}
 }
 
@@ -60,4 +62,14 @@ func getDuration(key string, fallback time.Duration) time.Duration {
 		}
 	}
 	return fallback
+}
+
+func splitNonEmpty(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

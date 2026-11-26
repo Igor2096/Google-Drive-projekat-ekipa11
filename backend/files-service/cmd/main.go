@@ -49,7 +49,7 @@ func main() {
 	log.Printf("kvota se proverava kod Users servisa na %s", cfg.UsersServiceURL)
 
 	folderSvc := service.NewFolderService(folderRepo, fileRepo)
-	fileSvc := service.NewFileService(folderRepo, fileRepo, fileStore, usersClient)
+	fileSvc := service.NewFileService(folderRepo, fileRepo, fileStore, usersClient, cfg.AllowedTypes)
 
 	// Rute koje zahtevaju korisnika
 	api := http.NewServeMux()
