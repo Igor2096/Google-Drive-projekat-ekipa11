@@ -109,6 +109,9 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrQuotaExceeded):
 		// 507 Insufficient Storage - korisnik je popunio svoju kvotu (2.5)
 		writeError(w, http.StatusInsufficientStorage, err.Error())
+	case errors.Is(err, service.ErrFileTypeNotAllowed):
+		// 415 Unsupported Media Type - tip sadrzaja nije na beloj listi (2.18)
+		writeError(w, http.StatusUnsupportedMediaType, err.Error())
 	case errors.Is(err, service.ErrUsersUnavailable):
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 	case errors.Is(err, service.ErrDuplicate), errors.Is(err, service.ErrFileDuplicate):

@@ -1,3 +1,6 @@
+<!-- skriven izbor fajla: za novu datoteku i za novu verziju postojece -->
+<input #fileInput type="file" hidden (change)="onFileChosen($event)" />
+
 <div class="page-header">
   <nav class="breadcrumbs" aria-label="Putanja">
     <a routerLink="/" class="crumb" [class.current]="!contents()?.breadcrumbs?.length">Moj disk</a>
@@ -29,10 +32,15 @@
   <div class="state">
     <app-icon name="folder" [size]="96" class="empty-icon" />
     <p class="state-title">Ovaj folder je prazan</p>
-    <p class="muted">Napravite folder ili (uskoro) otpremite datoteku.</p>
-    <button class="btn-outline" type="button" (click)="newFolder(); $event.stopPropagation()">
-      <app-icon name="new-folder" /> Novi folder
-    </button>
+    <p class="muted">Napravite folder ili otpremite datoteku.</p>
+    <div class="state-actions">
+      <button class="btn-outline" type="button" (click)="newFolder(); $event.stopPropagation()">
+        <app-icon name="new-folder" /> Novi folder
+      </button>
+      <button class="btn-outline" type="button" [disabled]="busy()" (click)="chooseNewFile(); $event.stopPropagation()">
+        <app-icon name="upload" /> Otpremi datoteku
+      </button>
+    </div>
   </div>
 } @else if (contents(); as c) {
   @if (view() === 'grid') {
@@ -44,15 +52,15 @@
             class="folder-tile"
             tabindex="0"
             [class.selected]="selectedId() === folder.id"
-            (click)="select(folder, $event)"
+            (click)="select(folder.id, $event)"
             (dblclick)="open(folder)"
             (keydown.enter)="open(folder)"
-            (contextmenu)="openMenu(folder, $event)"
+            (contextmenu)="openFolderMenu(folder, $event)"
             [title]="folder.name"
           >
             <app-icon name="folder" class="folder-icon" />
             <span class="tile-name">{{ folder.name }}</span>
-            <button class="icon-btn" type="button" (click)="openMenu(folder, $event)" aria-label="Opcije">
+            <button class="icon-btn" type="button" (click)="openFolderMenu(folder, $event)" aria-label="Opcije">
               <app-icon name="more" />
             </button>
           </div>
@@ -64,9 +72,22 @@
       <h3 class="section-title">Datoteke</h3>
       <div class="file-grid">
         @for (file of c.files; track file.id) {
-          <div class="file-card" [title]="file.name">
+          <div
+            class="file-card"
+            tabindex="0"
+            [class.selected]="selectedId() === file.id"
+            (click)="select(file.id, $event)"
+            (contextmenu)="openFileMenu(file, $event)"
+            [title]="file.name"
+          >
             <div class="file-preview"><app-icon [name]="fileIcon(file)" [size]="56" /></div>
-            <div class="file-card-name"><app-icon [name]="fileIcon(file)" [size]="16" /> {{ file.name }}</div>
+            <div class="file-card-name">
+              <app-icon [name]="fileIcon(file)" [size]="16" />
+              <span class="tile-name">{{ file.name }}</span>
+              <button class="icon-btn" type="button" (click)="openFileMenu(file, $event)" aria-label="Opcije">
+                <app-icon name="more" />
+              </button>
+            </div>
           </div>
         }
       </div>
@@ -79,6 +100,7 @@
           <th>Vlasnik</th>
           <th>Poslednja izmena</th>
           <th>Veličina</th>
+          <th>Verzija</th>
           <th></th>
         </tr>
       </thead>
@@ -87,29 +109,40 @@
           <tr
             tabindex="0"
             [class.selected]="selectedId() === folder.id"
-            (click)="select(folder, $event)"
+            (click)="select(folder.id, $event)"
             (dblclick)="open(folder)"
             (keydown.enter)="open(folder)"
-            (contextmenu)="openMenu(folder, $event)"
+            (contextmenu)="openFolderMenu(folder, $event)"
           >
             <td class="name-cell"><app-icon name="folder" class="folder-icon" /> {{ folder.name }}</td>
             <td>ja</td>
             <td>{{ folder.updatedAt | date: 'd. MMM y. HH:mm' }}</td>
             <td>—</td>
+            <td>—</td>
             <td class="actions-cell">
-              <button class="icon-btn" type="button" (click)="openMenu(folder, $event)" aria-label="Opcije">
+              <button class="icon-btn" type="button" (click)="openFolderMenu(folder, $event)" aria-label="Opcije">
                 <app-icon name="more" />
               </button>
             </td>
           </tr>
         }
         @for (file of c.files; track file.id) {
-          <tr>
+          <tr
+            tabindex="0"
+            [class.selected]="selectedId() === file.id"
+            (click)="select(file.id, $event)"
+            (contextmenu)="openFileMenu(file, $event)"
+          >
             <td class="name-cell"><app-icon [name]="fileIcon(file)" /> {{ file.name }}</td>
             <td>ja</td>
             <td>{{ file.updatedAt | date: 'd. MMM y. HH:mm' }}</td>
             <td>{{ file.size | fileSize }}</td>
-            <td></td>
+            <td>{{ file.version }}</td>
+            <td class="actions-cell">
+              <button class="icon-btn" type="button" (click)="openFileMenu(file, $event)" aria-label="Opcije">
+                <app-icon name="more" />
+              </button>
+            </td>
           </tr>
         }
       </tbody>
@@ -119,19 +152,52 @@
 
 @if (menu(); as m) {
   <div class="menu context-menu" [style.left.px]="m.x" [style.top.px]="m.y" (click)="$event.stopPropagation()">
-    <button type="button" (click)="open(m.folder)"><app-icon name="folder" /> Otvori</button>
-    <button type="button" (click)="startRename(m.folder)"><app-icon name="edit" /> Preimenuj</button>
+    @if (m.kind === 'folder') {
+      <button type="button" (click)="open(m.folder)"><app-icon name="folder" /> Otvori</button>
+      <button type="button" (click)="startRenameFolder(m.folder)"><app-icon name="edit" /> Preimenuj</button>
+    } @else {
+      <button type="button" (click)="startRenameFile(m.file)"><app-icon name="edit" /> Preimenuj</button>
+      <button type="button" [disabled]="busy()" (click)="chooseNewVersion(m.file)">
+        <app-icon name="upload" /> Otpremi novu verziju
+      </button>
+      <button type="button" (click)="verify(m.file)"><app-icon name="shield" /> Proveri integritet</button>
+      <button type="button" (click)="showDetails(m.file)"><app-icon name="info" /> Detalji</button>
+    }
   </div>
 }
 
-@if (renaming(); as folder) {
+@if (renaming(); as target) {
   <app-name-dialog
     title="Preimenuj"
     confirmLabel="U redu"
-    [initialValue]="folder.name"
+    [initialValue]="target.name"
     [busy]="renameBusy()"
     [serverError]="renameError()"
     (confirmed)="confirmRename($event)"
     (cancelled)="renaming.set(null)"
   />
+}
+
+@if (details(); as f) {
+  <div class="backdrop" (click)="details.set(null)">
+    <div class="dialog details-dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <h2>{{ f.name }}</h2>
+      <dl class="details-list">
+        <dt>Tip</dt>
+        <dd>{{ f.mimeType }}</dd>
+        <dt>Veličina</dt>
+        <dd>{{ f.size | fileSize }}</dd>
+        <dt>Verzija</dt>
+        <dd>{{ f.version }}</dd>
+        <dt>Poslednja izmena</dt>
+        <dd>{{ f.updatedAt | date: 'd. MMM y. HH:mm:ss' }}</dd>
+        <dt>SHA-256</dt>
+        <dd class="checksum">{{ f.checksum || 'nije zabeležen (otpremljeno pre uvođenja provere)' }}</dd>
+      </dl>
+      <div class="dialog-actions">
+        <button class="btn-text" type="button" (click)="verify(f); details.set(null)">Proveri integritet</button>
+        <button class="btn-text primary" type="button" (click)="details.set(null)">Zatvori</button>
+      </div>
+    </div>
+  </div>
 }

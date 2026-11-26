@@ -30,6 +30,9 @@ type Quota struct {
 	AvailableStorage int64 `json:"available_storage"` // koliko jos staje
 }
 
+// userIDHeader - isti header koji API gateway postavlja iz JWT-a.
+const userIDHeader = "X-User-ID"
+
 type Client struct {
 	baseURL string
 	http    *http.Client
@@ -53,6 +56,9 @@ func (c *Client) Quota(ctx context.Context, userID string) (Quota, error) {
 		return q, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	req.Header.Set("Accept", "application/json")
+	// Users servis dozvoljava citanje kvote samo vlasniku (ili adminu), pa
+	// Files servis salje ID korisnika u cije ime pita.
+	req.Header.Set(userIDHeader, userID)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -96,6 +102,7 @@ func (c *Client) AddUsedStorage(ctx context.Context, userID string, delta int64)
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(userIDHeader, userID)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

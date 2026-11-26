@@ -33,11 +33,29 @@
       </div>
     }
 
-    <div class="avatar" [title]="'Test korisnik: ' + userInitials">
-      {{ userInitials }}
+    <div class="user-menu-wrapper">
+      <button class="avatar" type="button" [title]="email" (click)="toggleUserMenu($event)">
+        {{ userInitials }}
+      </button>
+
+      @if (userMenuOpen()) {
+        <div class="menu user-menu" (click)="$event.stopPropagation()">
+          <div class="user-menu-email">{{ email }}</div>
+          <hr />
+          <button type="button" routerLink="/change-password">
+            <app-icon name="key" /> Promena lozinke
+          </button>
+          <button type="button" (click)="logout()">
+            <app-icon name="logout" /> Odjavi se
+          </button>
+        </div>
+      }
     </div>
   </div>
 </header>
+
+<!-- skriven izbor fajla; otvara ga stavka "Otpremanje datoteke" u meniju Novo -->
+<input #uploadInput type="file" hidden (change)="onFileChosen($event)" />
 
 <div class="layout">
   <aside class="sidebar">
@@ -53,7 +71,7 @@
             <app-icon name="new-folder" /> Novi folder
           </button>
           <hr />
-          <button type="button" disabled title="Uskoro (1.5)">
+          <button type="button" [disabled]="uploading()" (click)="chooseFile()">
             <app-icon name="upload" /> Otpremanje datoteke
           </button>
         </div>

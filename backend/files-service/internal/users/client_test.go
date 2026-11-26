@@ -11,9 +11,10 @@ import (
 )
 
 func TestQuotaSuccess(t *testing.T) {
-	var gotPath string
+	var gotPath, gotUser string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
+		gotUser = r.Header.Get("X-User-ID")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"storage_quota":1000,"used_storage":400,"available_storage":600}`))
 	}))
@@ -25,6 +26,11 @@ func TestQuotaSuccess(t *testing.T) {
 	}
 	if gotPath != "/users/507f1f77bcf86cd799439011/quota" {
 		t.Fatalf("pogresna putanja: %s", gotPath)
+	}
+	// Users servis odbija citanje kvote bez ovog header-a (401), pa bi
+	// svako otpremanje padalo sa 503.
+	if gotUser != "507f1f77bcf86cd799439011" {
+		t.Fatalf("X-User-ID nije poslat, dobijeno %q", gotUser)
 	}
 	if q.StorageQuota != 1000 || q.UsedStorage != 400 || q.AvailableStorage != 600 {
 		t.Fatalf("pogresno procitana kvota: %+v", q)
@@ -77,9 +83,10 @@ func TestQuotaGarbageResponse(t *testing.T) {
 }
 
 func TestAddUsedStorage(t *testing.T) {
-	var gotPath, gotMethod, gotBody string
+	var gotPath, gotMethod, gotBody, gotUser string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath, gotMethod = r.URL.Path, r.Method
+		gotUser = r.Header.Get("X-User-ID")
 		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
 		w.WriteHeader(http.StatusOK)
@@ -94,6 +101,9 @@ func TestAddUsedStorage(t *testing.T) {
 	}
 	if gotBody != `{"delta":1234}` {
 		t.Fatalf("telo zahteva: %s", gotBody)
+	}
+	if gotUser != "abc" {
+		t.Fatalf("X-User-ID nije poslat, dobijeno %q", gotUser)
 	}
 }
 
