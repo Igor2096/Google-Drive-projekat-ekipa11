@@ -1,145 +1,111 @@
+// Notifications servis - cuva notifikacije korisnika u Cassandri (wide-column)
+// i vraca ih prijavljenom korisniku (zahtev 1.7).
+//
+// Pokretanje:
+//
+//	notifications-service              -> HTTP servis
+//	notifications-service -seed <ID>   -> upise probne notifikacije za korisnika
+//	                                      sa datim ID-jem i izadje ("rucno
+//	                                      popunjavanje baze" za ocenu 6)
 package main
 
 import (
-	"encoding/json"
-	"fmt"
+	"context"
+	"errors"
+	"flag"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
-	"github.com/gocql/gocql"
 	"github.com/joho/godotenv"
 )
 
-type Notification struct {
-	UserID         gocql.UUID `json:"user_id"`
-	NotificationID gocql.UUID `json:"notification_id"`
-	Message        string     `json:"message"`
-	CreatedAt      time.Time  `json:"created_at"`
-	IsRead         bool       `json:"is_read"`
+type config struct {
+	Port          string
+	CassandraHost string
+	CassandraPort int
+	Keyspace      string
 }
 
-func connectToCassandra() *gocql.Session {
-	host := os.Getenv("CASSANDRA_HOST")
-	if host == "" {
-		log.Fatal("CASSANDRA_HOST is not defined!")
-	}
-
-	portString := os.Getenv("CASSANDRA_PORT")
-	port, err := strconv.Atoi(portString)
+func loadConfig() (config, error) {
+	port, err := strconv.Atoi(getEnv("CASSANDRA_PORT", "9042"))
 	if err != nil {
-		log.Fatal("Invalid CASSANDRA_PORT:", err)
+		return config{}, errors.New("CASSANDRA_PORT mora biti broj")
 	}
-
-	cluster := gocql.NewCluster(host)
-	cluster.Port = port
-	cluster.Keyspace = "notifications_db"
-	cluster.Consistency = gocql.One
-
-	session, err := cluster.CreateSession()
-	if err != nil {
-		log.Fatal("Cannot connect to Cassandra:", err)
-	}
-
-	fmt.Println("Successfully connected to Cassandra!")
-
-	return session
+	return config{
+		Port:          getEnv("NOTIFICATIONS_SERVICE_PORT", "8083"),
+		CassandraHost: getEnv("CASSANDRA_HOST", "localhost"),
+		CassandraPort: port,
+		Keyspace:      getEnv("CASSANDRA_KEYSPACE", "notifications_db"),
+	}, nil
 }
 
-func getNotifications(session *gocql.Session, userID gocql.UUID) ([]Notification, error) {
-	var notifications []Notification
-
-	iter := session.Query(`
-        SELECT user_id, notification_id, message, created_at, is_read
-        FROM notifications
-        WHERE user_id = ?
-    `, userID).Iter()
-
-	var notification Notification
-
-	for iter.Scan(
-		&notification.UserID,
-		&notification.NotificationID,
-		&notification.Message,
-		&notification.CreatedAt,
-		&notification.IsRead,
-	) {
-		notifications = append(notifications, notification)
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
-
-	if err := iter.Close(); err != nil {
-		return nil, err
-	}
-
-	return notifications, nil
-}
-
-func notificationsHandler(session *gocql.Session) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		// Provera HTTP metode
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		// Uzimanje user ID-a iz URL-a
-		userIDString := r.URL.Query().Get("user_id")
-
-		// Provera da li je user ID prosleđen
-		if userIDString == "" {
-			http.Error(w, "User ID is required", http.StatusBadRequest)
-			return
-		}
-
-		// Pretvaranje stringa u Cassandra UUID
-		userID, err := gocql.ParseUUID(userIDString)
-		if err != nil {
-			http.Error(w, "Invalid user ID", http.StatusBadRequest)
-			return
-		}
-
-		// Dobavljanje obaveštenja iz baze
-		notifications, err := getNotifications(session, userID)
-		if err != nil {
-			http.Error(w, "Failed to retrieve notifications", http.StatusInternalServerError)
-			return
-		}
-
-		// Vraćanje obaveštenja u JSON formatu
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(notifications)
-	}
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "Notifications Service is running!")
+	return fallback
 }
 
 func main() {
-	if err := godotenv.Load("../../.env"); err != nil {
-		log.Println("No .env file found; using environment variables")
-	}
-	session := connectToCassandra()
-	defer session.Close()
+	seedUser := flag.String("seed", "", "ID korisnika (Mongo ObjectID) za koga se upisuju probne notifikacije")
+	flag.Parse()
 
-	http.HandleFunc("/health", healthHandler)
-	http.HandleFunc("/notifications", notificationsHandler(session))
+	// Lokalni rad (go run) cita .env iz korena projekta; u Docker-u ga nema
+	// i promenljive dolaze iz docker-compose.yml.
+	_ = godotenv.Load("../../.env")
 
-	fmt.Println("Notifications Service starting on port 8083...")
-
-	port := os.Getenv("NOTIFICATIONS_SERVICE_PORT")
-
-	if port == "" {
-		log.Fatal("NOTIFICATIONS_SERVICE_PORT is not defined!")
-	}
-
-	fmt.Println("Notifications Service starting on port " + port + "...")
-
-	err := http.ListenAndServe(":"+port, nil)
+	cfg, err := loadConfig()
 	if err != nil {
-		log.Fatal("Server error:", err)
+		log.Fatal(err)
 	}
+
+	session, err := connect(cfg)
+	if err != nil {
+		log.Fatalf("Cassandra nije dostupna: %v", err)
+	}
+	defer session.Close()
+	store := &cassandraStore{session: session}
+
+	if *seedUser != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := seedNotifications(ctx, store, *seedUser); err != nil {
+			log.Fatalf("seed nije uspeo: %v", err)
+		}
+		log.Printf("upisane probne notifikacije za korisnika %s", *seedUser)
+		return
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.Handle("/notifications", notificationsHandler(store))
+
+	srv := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+	}
+
+	go func() {
+		log.Printf("Notifications servis slusa na portu %s", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server: %v", err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
 }
