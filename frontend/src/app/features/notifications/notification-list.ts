@@ -21,9 +21,6 @@ export class NotificationList implements OnInit {
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
 
-  // Privremeni testni korisnik iz Cassandra baze
-  private readonly userId = '11111111-1111-1111-1111-111111111111';
-
   ngOnInit(): void {
     this.loadNotifications();
   }
@@ -32,9 +29,9 @@ export class NotificationList implements OnInit {
     this.loading.set(true);
     this.error.set(null);
 
-    this.notificationService.getNotifications(this.userId).subscribe({
+    this.notificationService.getNotifications().subscribe({
       next: (data) => {
-        this.notifications.set(data);
+        this.notifications.set(data ?? []);
         this.loading.set(false);
       },
       error: (err) => {

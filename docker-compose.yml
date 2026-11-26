@@ -1,10 +1,9 @@
-
 services:
   mongodb:
     image: mongo:8
     container_name: google-drive-mongodb
     ports:
-      - "27017:27017"
+      - "27017:27017" # samo za Compass pri razvoju
     volumes:
       - mongodb_data:/data/db
 
@@ -12,7 +11,7 @@ services:
     image: axllent/mailpit:v1.27
     container_name: google-drive-mailpit
     ports:
-      - "8025:8025"
+      - "8025:8025" # web interfejs za pregled poslatih mejlova
 
   cassandra:
     image: cassandra:5
@@ -21,6 +20,18 @@ services:
       - "9042:9042"
     volumes:
       - cassandra_data:/var/lib/cassandra
+    # Cassandri treba i do minut da proradi; servisi koji zavise od nje
+    # cekaju dok ova provera ne prodje.
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES' > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 40s
+
+  # Mikroservisi NEMAJU objavljene portove (samo "expose"): do njih se stize
+  # iskljucivo kroz API gateway (2.2). Inace bi svako mogao da ih gadja
+  # direktno sa izmisljenim X-User-ID i zaobidje proveru tokena (2.17).
 
   users-service:
     build:
@@ -32,10 +43,10 @@ services:
     environment:
       PORT: 8081
       MONGO_URI: mongodb://mongodb:27017
-      MONGO_DB: ${MONGO_DB}
-      DEFAULT_STORAGE_QUOTA_BYTES: ${DEFAULT_STORAGE_QUOTA_BYTES}
-      OTP_TTL_MINUTES: ${OTP_TTL_MINUTES}
-      TOKEN_TTL_MINUTES: ${TOKEN_TTL_MINUTES}
+      MONGO_DB: ${MONGO_DB:-google_drive}
+      DEFAULT_STORAGE_QUOTA_BYTES: ${DEFAULT_STORAGE_QUOTA_BYTES:-1073741824}
+      OTP_TTL_MINUTES: ${OTP_TTL_MINUTES:-10}
+      TOKEN_TTL_MINUTES: ${TOKEN_TTL_MINUTES:-60}
       JWT_SECRET: ${JWT_SECRET}
       EMAIL_VERIFICATION_TTL_HOURS: ${EMAIL_VERIFICATION_TTL_HOURS:-24}
       SMTP_HOST: ${SMTP_HOST:-mailpit}
@@ -43,7 +54,10 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-noreply@google-drive.local}
-      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8081}
+      # Linkovi u mejlovima (potvrda naloga, reset lozinke, magicni link) vode
+      # na KLIJENTSKU aplikaciju, koja zatim poziva API kroz gateway.
+      APP_BASE_URL: ${FRONTEND_URL:-http://localhost:4200}
+      MAGIC_LINK_TTL_MINUTES: ${MAGIC_LINK_TTL_MINUTES:-15}
       PASSWORD_CHANGE_MIN_AGE_HOURS: ${PASSWORD_CHANGE_MIN_AGE_HOURS:-24}
       PASSWORD_RESET_TTL_MINUTES: ${PASSWORD_RESET_TTL_MINUTES:-30}
       PASSWORD_MAX_AGE_DAYS: ${PASSWORD_MAX_AGE_DAYS:-60}
@@ -55,51 +69,66 @@ services:
   files-service:
     build: ./backend/files-service
     container_name: google-drive-files-service
+    expose:
+      - "8082"
     environment:
-      FILES_SERVICE_PORT: ${FILES_SERVICE_PORT:-8082}
+      FILES_SERVICE_PORT: 8082
       USERS_SERVICE_URL: http://users-service:8081
       MONGO_URI: ${MONGO_URI:-mongodb://mongodb:27017}
       FILES_DB_NAME: ${FILES_DB_NAME:-files_db}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
       STORAGE_PATH: /data/files
       MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-52428800}
-    ports:
-      - "${FILES_SERVICE_PORT:-8082}:${FILES_SERVICE_PORT:-8082}"
+      ALLOWED_FILE_TYPES: ${ALLOWED_FILE_TYPES:-}
     volumes:
       - files_data:/data/files
     depends_on:
       - mongodb
       - users-service
 
+  notifications-service:
+    build:
+      context: ./backend/notifications-service
+      dockerfile: dockerfile
+    container_name: google-drive-notifications-service
+    expose:
+      - "8083"
+    environment:
+      NOTIFICATIONS_SERVICE_PORT: 8083
+      CASSANDRA_HOST: cassandra
+      CASSANDRA_PORT: ${CASSANDRA_PORT:-9042}
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    restart: unless-stopped
+
   api-gateway:
     build:
       context: ./backend/api-gateway
-      dockerfile: Dockerfile
+      dockerfile: dockerfile
     container_name: google-drive-api-gateway
     ports:
-      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+      - "${GATEWAY_PORT:-8080}:${GATEWAY_PORT:-8080}"
     environment:
-      GATEWAY_PORT: ${GATEWAY_PORT}
+      GATEWAY_PORT: ${GATEWAY_PORT:-8080}
       USERS_SERVICE_URL: http://users-service:8081
       FILES_SERVICE_URL: http://files-service:8082
       NOTIFICATIONS_SERVICE_URL: http://notifications-service:8083
       JWT_SECRET: ${JWT_SECRET}
-
-  notifications-service:
-    build:
-      context: ./backend/notifications-service
-      dockerfile: Dockerfile
-    container_name: google-drive-notifications-service
-    ports:
-      - "${NOTIFICATIONS_SERVICE_PORT}:${NOTIFICATIONS_SERVICE_PORT}"
-    environment:
-      NOTIFICATIONS_SERVICE_PORT: ${NOTIFICATIONS_SERVICE_PORT}
-      CASSANDRA_HOST: cassandra
-      CASSANDRA_PORT: ${CASSANDRA_PORT}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
+      RATE_LIMIT_PER_SECOND: ${RATE_LIMIT_PER_SECOND:-10}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-30}
+      TLS_ENABLED: ${TLS_ENABLED:-true}
+      TLS_CERT_FILE: /certs/gateway.crt
+      TLS_KEY_FILE: /certs/gateway.key
+    volumes:
+      - gateway_certs:/certs # samopotpisan sertifikat, pravi se pri prvom pokretanju
     depends_on:
-      - cassandra
+      - users-service
+      - files-service
+      - notifications-service
 
 volumes:
   mongodb_data:
   cassandra_data:
   files_data:
+  gateway_certs:
