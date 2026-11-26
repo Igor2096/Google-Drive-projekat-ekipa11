@@ -14,6 +14,9 @@ type User struct {
 	LastName                   string             `bson:"last_name" json:"last_name"`
 	Email                      string             `bson:"email" json:"email"`
 	PasswordHash               string             `bson:"password_hash" json:"-"`
+	PasswordChangedAt          time.Time          `bson:"password_changed_at" json:"-"`
+	PasswordResetTokenHash     string             `bson:"password_reset_token_hash,omitempty" json:"-"`
+	PasswordResetExpiresAt     *time.Time         `bson:"password_reset_expires_at,omitempty" json:"-"`
 	Role                       string             `bson:"role" json:"role"`
 	StorageQuota               int64              `bson:"storage_quota" json:"storage_quota"`
 	UsedStorage                int64              `bson:"used_storage" json:"used_storage"`
