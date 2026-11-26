@@ -1,10 +1,12 @@
-import { Component, ElementRef, HostListener, inject, signal, viewChild } from '@angular/core';
+import { Component, computed, effect, ElementRef, HostListener, inject, signal, untracked, viewChild } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { DriveStateService, errorMessage } from '../../core/services/drive-state.service';
 import { FolderService } from '../../core/services/folder.service';
 import { FileService, validateUpload } from '../../core/services/file.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { AuthService } from '../../core/services/auth.service';
+import { QuotaInfo, QuotaService } from '../../core/services/quota.service';
+import { FileSizePipe } from '../../shared/pipes/file-size.pipe';
 import { Icon } from '../../shared/components/icon/icon';
 import { NameDialog } from '../../shared/components/name-dialog/name-dialog';
 import { NotificationList } from '../../features/notifications/notification-list';
@@ -12,7 +14,7 @@ import { NotificationList } from '../../features/notifications/notification-list
 @Component({
   selector: 'app-drive-layout',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon, NameDialog, NotificationList],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon, NameDialog, NotificationList, FileSizePipe],
   templateUrl: './drive-layout.html',
 })
 export class DriveLayout {
@@ -21,6 +23,7 @@ export class DriveLayout {
   private readonly files = inject(FileService);
   private readonly notificationService = inject(NotificationService);
   private readonly auth = inject(AuthService);
+  private readonly quotaService = inject(QuotaService);
   private readonly router = inject(Router);
 
   private readonly uploadInput = viewChild.required<ElementRef<HTMLInputElement>>('uploadInput');
@@ -39,15 +42,33 @@ export class DriveLayout {
   protected readonly notificationsOpen = signal(false);
   protected readonly unreadCount = signal(0);
 
-  /**
-   * Stari argument za NotificationService. Novi servis (Igorov paket) ga
-   * ignorise i sam odredjuje korisnika iz tokena; prosledjuje se samo da bi
-   * ovaj fajl radio bez obzira da li je Igorov paket vec spojen.
-   */
-  private readonly legacyNotificationUserId = '11111111-1111-1111-1111-111111111111';
+  /** Kvota i zauzece prijavljenog korisnika (Users servis), za traku "Skladiste". */
+  protected readonly quota = signal<QuotaInfo | null>(null);
+  protected readonly usedPercent = computed(() => {
+    const q = this.quota();
+    if (!q || q.storage_quota <= 0) {
+      return 0;
+    }
+    return Math.min(100, Math.round((q.used_storage / q.storage_quota) * 100));
+  });
 
   constructor() {
     this.loadUnreadCount();
+
+    // Zauzece se ucitava na pocetku i posle svake promene sadrzaja
+    // (otpremanje, nova verzija...) - tada drive-state javi reloadTick.
+    effect(() => {
+      this.state.reloadTick();
+      untracked(() => this.loadQuota());
+    });
+  }
+
+  private loadQuota() {
+    this.quotaService.getMyQuota().subscribe({
+      next: (q) => this.quota.set(q),
+      // Traka nije kljucna: ako Users servis ne odgovori, samo ostaje bez podataka.
+      error: () => this.quota.set(null),
+    });
   }
 
   protected toggleNewMenu(event: MouseEvent) {
@@ -146,7 +167,7 @@ export class DriveLayout {
   }
 
   protected loadUnreadCount() {
-    this.notificationService.getNotifications(this.legacyNotificationUserId).subscribe({
+    this.notificationService.getNotifications().subscribe({
       next: (notifications) => {
         this.unreadCount.set((notifications ?? []).filter((n) => !n.is_read).length);
       },
