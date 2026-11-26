@@ -28,6 +28,8 @@ export class DriveLayout {
   protected readonly email = emailFromToken(this.auth.getToken());
   protected readonly userInitials = (this.email || '?').slice(0, 2).toUpperCase();
 
+  protected readonly isAdmin = this.auth.isAdmin();
+
   protected readonly newMenuOpen = signal(false);
   protected readonly userMenuOpen = signal(false);
   protected readonly creating = signal(false);
