@@ -17,6 +17,8 @@ export interface DriveFile {
   folderId: string | null;
   mimeType: string;
   size: number;
+  /** SHA-256 sadrzaja, zabelezen pri otpremanju (2.18) */
+  checksum?: string;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -32,4 +34,11 @@ export interface FolderContents {
   breadcrumbs: Breadcrumb[];
   folders: Folder[];
   files: DriveFile[];
+}
+
+export interface IntegrityResult {
+  fileId: string;
+  expected: string;
+  actual: string;
+  valid: boolean;
 }

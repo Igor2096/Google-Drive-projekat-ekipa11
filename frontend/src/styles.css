@@ -257,3 +257,20 @@ a { color: inherit; text-decoration: none; }
   border-radius: 16px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .16);
 }
+
+/* ---------- korisnicki meni (odjava) ---------- */
+.user-menu-wrapper { position: relative; }
+.avatar { border: 0; cursor: pointer; }
+.user-menu { top: 40px; right: 0; }
+.user-menu-email { padding: 8px 16px; font-size: 13px; color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- datoteke: izbor, meni, detalji ---------- */
+.file-card { cursor: default; outline: none; }
+.file-card.selected, .file-card:focus-visible { background: var(--selected); }
+.file-card-name .tile-name { flex: 1; }
+.state-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.details-dialog { width: 520px; }
+.details-list { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; font-size: 14px; }
+.details-list dt { color: var(--muted); }
+.details-list dd { margin: 0; overflow-wrap: anywhere; }
+.details-list .checksum { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
