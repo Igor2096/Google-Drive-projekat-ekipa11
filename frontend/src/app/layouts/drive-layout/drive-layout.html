@@ -105,7 +105,12 @@
 
     <div class="storage">
       <div class="storage-label"><app-icon name="cloud" [size]="18" /> Skladište</div>
-      <div class="storage-bar"><div class="storage-fill" style="width: 0%"></div></div>
+      <div class="storage-bar">
+        <div class="storage-fill" [class.full]="usedPercent() >= 90" [style.width.%]="usedPercent()"></div>
+      </div>
+      @if (quota(); as q) {
+        <small>Iskorišćeno {{ q.used_storage | fileSize }} od {{ q.storage_quota | fileSize }}</small>
+      }
     </div>
   </aside>
 
