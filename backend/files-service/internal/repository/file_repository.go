@@ -101,11 +101,34 @@ func (r *FileRepository) UpdateVersion(ctx context.Context, f *model.File) error
 			"storageKey": f.StorageKey,
 			"size":       f.Size,
 			"mimeType":   f.MimeType,
+			"checksum":   f.Checksum,
 			"version":    f.Version,
 			"updatedAt":  f.UpdatedAt,
 		}},
 	)
 	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RenameFile menja naziv datoteke (1.6). Jedinstven indeks
+// (ownerId, folderId, name) sam odbija naziv koji vec postoji u tom folderu.
+func (r *FileRepository) RenameFile(ctx context.Context, id bson.ObjectID, name string, updatedAt time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	res, err := r.coll.UpdateOne(ctx,
+		bson.M{"_id": id},
+		bson.M{"$set": bson.M{"name": name, "updatedAt": updatedAt}},
+	)
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return ErrDuplicate
+		}
 		return err
 	}
 	if res.MatchedCount == 0 {

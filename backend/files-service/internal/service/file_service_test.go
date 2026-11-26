@@ -6,11 +6,13 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"files-service/internal/model"
 	"files-service/internal/repository"
+	"files-service/internal/storage"
 	"files-service/internal/users"
 )
 
@@ -63,7 +65,13 @@ func (f *fakeStorage) Put(_ context.Context, key string, r io.Reader, _ int64, _
 	f.objects[key] = string(b)
 	return nil
 }
-func (f *fakeStorage) Get(context.Context, string) (io.ReadCloser, error) { return nil, nil }
+func (f *fakeStorage) Get(_ context.Context, key string) (io.ReadCloser, error) {
+	content, ok := f.objects[key]
+	if !ok {
+		return nil, storage.ErrNotFound
+	}
+	return io.NopCloser(strings.NewReader(content)), nil
+}
 func (f *fakeStorage) Delete(_ context.Context, key string) error {
 	delete(f.objects, key)
 	return nil
@@ -106,6 +114,20 @@ func (f *fakeFileStore) UpdateVersion(_ context.Context, file *model.File) error
 	}
 	return repository.ErrNotFound
 }
+func (f *fakeFileStore) RenameFile(_ context.Context, id bson.ObjectID, name string, updatedAt time.Time) error {
+	for i := range f.items {
+		if f.items[i].ID == id {
+			for _, other := range f.items {
+				if other.ID != id && other.OwnerID == f.items[i].OwnerID && other.Name == name && sameParent(other.FolderID, f.items[i].FolderID) {
+					return repository.ErrDuplicate
+				}
+			}
+			f.items[i].Name, f.items[i].UpdatedAt = name, updatedAt
+			return nil
+		}
+	}
+	return repository.ErrNotFound
+}
 func (f *fakeFileStore) Create(_ context.Context, file *model.File) error {
 	if f.failCreate != nil {
 		return f.failCreate
@@ -124,14 +146,13 @@ func newFileSvcQuota(available int64) (*FileService, *fakeFolders, *fakeFileStor
 	files := &fakeFileStore{}
 	store := newFakeStorage()
 	quota := &fakeQuota{available: available}
-	return NewFileService(folders, files, store, quota), folders, files, store, quota
+	return NewFileService(folders, files, store, quota, nil), folders, files, store, quota
 }
 
 func upload(svc *FileService, owner, name, folderID, body string) (*model.File, error) {
 	return svc.Upload(context.Background(), owner, UploadInput{
 		Name:     name,
 		FolderID: folderID,
-		MimeType: "text/plain",
 		Size:     int64(len(body)),
 		Content:  strings.NewReader(body),
 	})
@@ -323,9 +344,8 @@ func TestBadRequestDoesNotCallUsersService(t *testing.T) {
 
 func newVersion(svc *FileService, owner, fileID, body string) (*model.File, error) {
 	return svc.UploadNewVersion(context.Background(), owner, fileID, NewVersionInput{
-		MimeType: "text/plain",
-		Size:     int64(len(body)),
-		Content:  strings.NewReader(body),
+		Size:    int64(len(body)),
+		Content: strings.NewReader(body),
 	})
 }
 
@@ -515,5 +535,154 @@ func TestEmptyFileReportsNothing(t *testing.T) {
 	}
 	if quota.addCalls != 0 {
 		t.Fatal("prazna datoteka ne menja zauzece")
+	}
+}
+
+// --- bela lista tipova i otisak sadrzaja (2.18) ---
+
+func TestUploadRejectsDisallowedContentRegardlessOfName(t *testing.T) {
+	svc, _, files, store, quota := newFileSvcQuota(1 << 30)
+
+	cases := map[string]string{
+		"stranica.html": "<!DOCTYPE html><html><script>alert(1)</script></html>",
+		"slika.svg":     `<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`,
+		"izvestaj.pdf":  "MZ\x90\x00 ovo je zapravo izvrsni fajl", // laziran naziv, sadrzaj je .exe
+		"program.exe":   "\x7fELF\x02\x01\x01 binarni fajl",
+	}
+	for name, body := range cases {
+		if _, err := upload(svc, "u1", name, "", body); !errors.Is(err, ErrFileTypeNotAllowed) {
+			t.Errorf("%s: ocekivano ErrFileTypeNotAllowed, dobijeno %v", name, err)
+		}
+	}
+	if len(files.items) != 0 || len(store.objects) != 0 {
+		t.Fatal("nijedan odbijen fajl ne sme da stigne do skladista ni baze")
+	}
+	if quota.calls != 0 {
+		t.Fatal("tip se proverava lokalno, pre poziva ka Users servisu")
+	}
+}
+
+func TestUploadDetectsTypeFromContent(t *testing.T) {
+	svc, _, _, _, _ := newFileSvcQuota(1 << 30)
+
+	png := "\x89PNG\r\n\x1a\n" + strings.Repeat("\x00", 20)
+	file, err := upload(svc, "u1", "fotka.txt", "", png) // pogresna ekstenzija
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.MimeType != "image/png" {
+		t.Fatalf("tip se odredjuje po sadrzaju, dobijeno %q", file.MimeType)
+	}
+}
+
+func TestUploadStoresSHA256Checksum(t *testing.T) {
+	svc, _, _, _, _ := newFileSvcQuota(1 << 30)
+
+	file, err := upload(svc, "u1", "b.txt", "", "abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sha256OfABC = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+	if file.Checksum != sha256OfABC {
+		t.Fatalf("checksum %q", file.Checksum)
+	}
+}
+
+func TestNewVersionUpdatesChecksum(t *testing.T) {
+	svc, _, _, _, _ := newFileSvcQuota(1 << 30)
+	first, _ := upload(svc, "u1", "a.txt", "", "abc")
+	second, err := newVersion(svc, "u1", first.ID.Hex(), "abcd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Checksum == first.Checksum || second.Checksum == "" {
+		t.Fatal("nova verzija mora imati nov otisak")
+	}
+}
+
+func TestNewVersionRejectsDisallowedType(t *testing.T) {
+	svc, _, _, store, _ := newFileSvcQuota(1 << 30)
+	first, _ := upload(svc, "u1", "a.txt", "", "abc")
+
+	if _, err := newVersion(svc, "u1", first.ID.Hex(), "<html><script>x</script></html>"); !errors.Is(err, ErrFileTypeNotAllowed) {
+		t.Fatalf("ocekivano ErrFileTypeNotAllowed, dobijeno %v", err)
+	}
+	if store.objects[first.StorageKey] != "abc" || len(store.objects) != 1 {
+		t.Fatal("stara verzija mora ostati netaknuta")
+	}
+}
+
+func TestCustomAllowList(t *testing.T) {
+	folders := &fakeFolders{items: map[bson.ObjectID]model.Folder{}}
+	svc := NewFileService(folders, &fakeFileStore{}, newFakeStorage(), &fakeQuota{available: 1 << 30}, []string{"application/pdf"})
+
+	if _, err := upload(svc, "u1", "a.txt", "", "obican tekst"); !errors.Is(err, ErrFileTypeNotAllowed) {
+		t.Fatalf("tekst nije na listi, dobijeno %v", err)
+	}
+	if _, err := upload(svc, "u1", "a.pdf", "", "%PDF-1.7 sadrzaj"); err != nil {
+		t.Fatalf("PDF je na listi: %v", err)
+	}
+}
+
+// --- provera integriteta ---
+
+func TestVerifyIntegrity(t *testing.T) {
+	svc, _, _, store, _ := newFileSvcQuota(1 << 30)
+	file, _ := upload(svc, "u1", "a.txt", "", "originalni sadrzaj")
+
+	res, err := svc.VerifyIntegrity(context.Background(), "u1", file.ID.Hex())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Valid || res.Actual != file.Checksum {
+		t.Fatalf("netaknuta datoteka mora proci proveru: %+v", res)
+	}
+
+	store.objects[file.StorageKey] = "neko je ovo izmenio mimo aplikacije"
+	res, _ = svc.VerifyIntegrity(context.Background(), "u1", file.ID.Hex())
+	if res.Valid {
+		t.Fatal("izmenjen sadrzaj mora pasti na proveri integriteta")
+	}
+
+	delete(store.objects, file.StorageKey)
+	res, _ = svc.VerifyIntegrity(context.Background(), "u1", file.ID.Hex())
+	if res.Valid {
+		t.Fatal("nestao sadrzaj mora pasti na proveri integriteta")
+	}
+
+	if _, err := svc.VerifyIntegrity(context.Background(), "u2", file.ID.Hex()); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("tudja datoteka: ocekivano ErrForbidden, dobijeno %v", err)
+	}
+}
+
+// --- preimenovanje datoteke (1.6) ---
+
+func TestRenameFile(t *testing.T) {
+	svc, _, files, _, _ := newFileSvcQuota(1 << 30)
+	a, _ := upload(svc, "u1", "a.txt", "", "x")
+	_, _ = upload(svc, "u1", "b.txt", "", "y")
+
+	renamed, err := svc.RenameFile(context.Background(), "u1", a.ID.Hex(), "  novi naziv.txt ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Name != "novi naziv.txt" || files.items[0].Name != "novi naziv.txt" {
+		t.Fatalf("naziv nije promenjen: %+v", renamed)
+	}
+	if renamed.Version != 1 {
+		t.Fatal("preimenovanje ne sme da menja verziju")
+	}
+
+	if _, err := svc.RenameFile(context.Background(), "u1", a.ID.Hex(), "b.txt"); !errors.Is(err, ErrFileDuplicate) {
+		t.Fatalf("ocekivano ErrFileDuplicate, dobijeno %v", err)
+	}
+	if _, err := svc.RenameFile(context.Background(), "u2", a.ID.Hex(), "upad.txt"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("ocekivano ErrForbidden, dobijeno %v", err)
+	}
+	if _, err := svc.RenameFile(context.Background(), "u1", a.ID.Hex(), "a/b.txt"); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("ocekivano ErrInvalidName, dobijeno %v", err)
+	}
+	if _, err := svc.RenameFile(context.Background(), "u1", bson.NewObjectID().Hex(), "x.txt"); !errors.Is(err, ErrFileNotFound) {
+		t.Fatalf("ocekivano ErrFileNotFound, dobijeno %v", err)
 	}
 }

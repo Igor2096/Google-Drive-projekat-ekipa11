@@ -30,7 +30,8 @@ type File struct {
 	OwnerID    string         `bson:"ownerId"       json:"ownerId"`
 	FolderID   *bson.ObjectID `bson:"folderId"      json:"folderId"` // nil = koren
 	MimeType   string         `bson:"mimeType"      json:"mimeType"`
-	Size       int64          `bson:"size"          json:"size"` // u bajtovima
+	Size       int64          `bson:"size"          json:"size"`     // u bajtovima
+	Checksum   string         `bson:"checksum"      json:"checksum"` // SHA-256 sadrzaja (2.18)
 	StorageKey string         `bson:"storageKey"    json:"-"`
 	Version    int            `bson:"version"       json:"version"`
 	CreatedAt  time.Time      `bson:"createdAt"     json:"createdAt"`
