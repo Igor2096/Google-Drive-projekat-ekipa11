@@ -3,8 +3,9 @@ import {
   ReactiveFormsModule,
   Validators,
 } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
+import { serverMessage } from '../../../core/services/magic-link.service';
 import { finalize } from 'rxjs';
 import { Component, inject, ChangeDetectorRef } from '@angular/core';
 
@@ -19,10 +20,12 @@ export class Login {
   private readonly fb = inject(FormBuilder);
   private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
-  private readonly cdr = inject(ChangeDetectorRef); 
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly route = inject(ActivatedRoute);
 
   loading = false;
   errorMessage = '';
+  readonly sessionExpired = this.route.snapshot.queryParamMap.get('sesija') === 'istekla';
 
   loginForm = this.fb.nonNullable.group({
     email: ['', [Validators.required, Validators.email]],
@@ -57,8 +60,9 @@ export class Login {
         this.router.navigate(['/verify-otp']);
       },
       error: (error: any) => {
-        this.errorMessage =
-          error.error?.message || 'Neispravan email ili lozinka.';
+        // Prikazuje se pravi razlog sa servera (nepotvrdjen nalog, istekla
+        // lozinka...), a ne uvek ista opsta poruka.
+        this.errorMessage = serverMessage(error, 'Neispravan email ili lozinka.');
       },
     });
 }

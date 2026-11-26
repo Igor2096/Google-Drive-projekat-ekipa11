@@ -50,6 +50,10 @@ func LoginHandler(users *UserRepository, otpValidity, passwordMaxAge time.Durati
 			http.Error(w, "Neispravan email ili lozinka", http.StatusUnauthorized)
 			return
 		}
+		if !user.Verified {
+			http.Error(w, "Nalog nije potvrđen. Otvorite link koji smo poslali na vaš email.", http.StatusForbidden)
+			return
+		}
 		if PasswordExpired(user.PasswordChangedAt, user.CreatedAt, time.Now().UTC(), passwordMaxAge) {
 			http.Error(w, "Lozinka je istekla. Zatražite reset lozinke putem emaila.", http.StatusForbidden)
 			return

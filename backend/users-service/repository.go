@@ -199,6 +199,7 @@ func (r *UserRepository) SetLoginOTP(ctx context.Context, userID primitive.Objec
 	_, err := r.collection.UpdateByID(ctx, userID, bson.M{"$set": bson.M{
 		"otp_hash":       otpHash,
 		"otp_expires_at": expiresAt,
+		"otp_attempts":   0,
 		"updated_at":     time.Now().UTC(),
 	}})
 	return err
@@ -216,6 +217,7 @@ func (r *UserRepository) ConsumeLoginOTP(
 		"$unset": bson.M{
 			"otp_hash":       "",
 			"otp_expires_at": "",
+			"otp_attempts":   "",
 		},
 		"$set": bson.M{
 			"updated_at": time.Now().UTC(),
@@ -225,5 +227,66 @@ func (r *UserRepository) ConsumeLoginOTP(
 		return false, err
 	}
 
+	return result.MatchedCount == 1, nil
+}
+
+func (r *UserRepository) RegisterFailedOTPAttempt(ctx context.Context, userID primitive.ObjectID) (int, error) {
+	var updated User
+	err := r.collection.FindOneAndUpdate(ctx,
+		bson.M{"_id": userID},
+		bson.M{"$inc": bson.M{"otp_attempts": 1}},
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
+	).Decode(&updated)
+	return updated.OTPAttempts, err
+}
+
+func (r *UserRepository) ClearLoginOTP(ctx context.Context, userID primitive.ObjectID) error {
+	_, err := r.collection.UpdateByID(ctx, userID, bson.M{
+		"$unset": bson.M{"otp_hash": "", "otp_expires_at": "", "otp_attempts": ""},
+		"$set":   bson.M{"updated_at": time.Now().UTC()},
+	})
+	return err
+}
+
+func (r *UserRepository) AddUsedStorage(ctx context.Context, userID primitive.ObjectID, delta int64) (*User, error) {
+	pipeline := mongo.Pipeline{
+		{{Key: "$set", Value: bson.M{
+			"used_storage": bson.M{"$max": bson.A{0, bson.M{"$add": bson.A{"$used_storage", delta}}}},
+			"updated_at":   "$$NOW",
+		}}},
+	}
+	var updated User
+	err := r.collection.FindOneAndUpdate(ctx,
+		bson.M{"_id": userID},
+		pipeline,
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
+	).Decode(&updated)
+	if err != nil {
+		return nil, err
+	}
+	return &updated, nil
+}
+
+func (r *UserRepository) SetMagicLinkToken(ctx context.Context, userID primitive.ObjectID, tokenHash string, expiresAt time.Time) error {
+	_, err := r.collection.UpdateByID(ctx, userID, bson.M{"$set": bson.M{
+		"magic_link_token_hash": tokenHash,
+		"magic_link_expires_at": expiresAt,
+		"updated_at":            time.Now().UTC(),
+	}})
+	return err
+}
+
+func (r *UserRepository) ConsumeMagicLink(ctx context.Context, userID primitive.ObjectID, tokenHash string) (bool, error) {
+	result, err := r.collection.UpdateOne(ctx, bson.M{
+		"_id":                   userID,
+		"magic_link_token_hash": tokenHash,
+		"magic_link_expires_at": bson.M{"$gt": time.Now().UTC()},
+	}, bson.M{
+		"$unset": bson.M{"magic_link_token_hash": "", "magic_link_expires_at": ""},
+		"$set":   bson.M{"updated_at": time.Now().UTC()},
+	})
+	if err != nil {
+		return false, err
+	}
 	return result.MatchedCount == 1, nil
 }

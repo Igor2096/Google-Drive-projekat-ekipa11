@@ -67,6 +67,8 @@ func main() {
 	mux.Handle("/change-password", ChangePasswordHandler(users, config.PasswordChangeMinimumAge))
 	mux.Handle("/forgot-password", RequestPasswordResetHandler(users, mailer, config.Mail.AppURL, config.PasswordResetValidity))
 	mux.Handle("/reset-password", ResetPasswordHandler(users))
+	mux.Handle("/magic-link", RequestMagicLinkHandler(users, mailer, config.Mail.AppURL, config.MagicLinkValidity))
+	mux.Handle("/magic-link/verify", VerifyMagicLinkHandler(users, config.JWTSecret, config.TokenValidity, config.PasswordMaxAge))
 	mux.Handle("/users/", UserQuotaHandler(users))
 
 	mux.Handle(

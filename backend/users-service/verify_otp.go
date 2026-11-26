@@ -43,9 +43,19 @@ func VerifyOTPHandler(users *UserRepository, jwtSecret string, tokenValidity tim
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		user, err := users.FindByEmail(ctx, request.Email)
-		if err != nil || user.OTPExpiresAt == nil || time.Now().UTC().After(*user.OTPExpiresAt) || CheckPassword(user.OTPHash, request.OTP) != nil {
+		if err != nil || user.OTPExpiresAt == nil || time.Now().UTC().After(*user.OTPExpiresAt) {
 			if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 				http.Error(w, "Verifikacija OTP koda nije uspela", http.StatusInternalServerError)
+				return
+			}
+			http.Error(w, "OTP kod nije ispravan ili je istekao", http.StatusUnauthorized)
+			return
+		}
+		if CheckPassword(user.OTPHash, request.OTP) != nil {
+			attempts, err := users.RegisterFailedOTPAttempt(ctx, user.ID)
+			if err == nil && otpAttemptsExhausted(attempts) {
+				_ = users.ClearLoginOTP(ctx, user.ID)
+				http.Error(w, "Previše pogrešnih pokušaja. Prijavite se ponovo.", http.StatusUnauthorized)
 				return
 			}
 			http.Error(w, "OTP kod nije ispravan ili je istekao", http.StatusUnauthorized)
