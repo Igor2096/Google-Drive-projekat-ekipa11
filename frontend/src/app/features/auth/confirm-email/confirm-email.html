@@ -1,0 +1,17 @@
+<div class="auth-container">
+  <h1>Potvrda naloga</h1>
+
+  @switch (state()) {
+    @case ('loading') {
+      <p>Potvrđujemo vaš nalog...</p>
+    }
+    @case ('ok') {
+      <p>Nalog je potvrđen. Sada možete da se prijavite.</p>
+      <p><a routerLink="/login">Prijavi se</a></p>
+    }
+    @case ('error') {
+      <p class="error-message">{{ message() }}</p>
+      <p><a routerLink="/register">Nazad na registraciju</a></p>
+    }
+  }
+</div>

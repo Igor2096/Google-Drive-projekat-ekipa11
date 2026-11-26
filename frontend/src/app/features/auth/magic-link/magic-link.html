@@ -1,0 +1,32 @@
+<div class="auth-container">
+  <h1>Prijava bez lozinke</h1>
+
+  @if (verifying()) {
+    <p>Prijavljujemo vas...</p>
+  } @else if (sent()) {
+    <p>
+      Ako nalog postoji, na <strong>{{ form.controls.email.value }}</strong> smo poslali link
+      za prijavu. Link važi kratko i može se iskoristiti samo jednom.
+    </p>
+  } @else {
+    <p>Unesi email i poslaćemo ti jednokratni link za prijavu.</p>
+
+    <form [formGroup]="form" (ngSubmit)="send()">
+      <label for="email">Email</label>
+      <input id="email" type="email" formControlName="email" placeholder="ime@example.com" />
+      @if (form.controls.email.touched && form.controls.email.invalid) {
+        <small>Unesi ispravnu email adresu.</small>
+      }
+
+      <button type="submit" [disabled]="sending()">
+        {{ sending() ? 'Slanje...' : 'Pošalji link' }}
+      </button>
+    </form>
+  }
+
+  @if (errorMessage()) {
+    <p class="error-message">{{ errorMessage() }}</p>
+  }
+
+  <p><a routerLink="/login">Nazad na prijavu lozinkom</a></p>
+</div>

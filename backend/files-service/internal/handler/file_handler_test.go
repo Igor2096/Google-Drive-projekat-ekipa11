@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
@@ -18,6 +19,8 @@ import (
 	"files-service/internal/model"
 	"files-service/internal/repository"
 	"files-service/internal/service"
+	"files-service/internal/storage"
+	"files-service/internal/users"
 )
 
 // --- minimalni fake-ovi, da test ne zahteva Mongo ni disk ---
@@ -64,6 +67,33 @@ func (f *files) FindByName(_ context.Context, owner string, folder *bson.ObjectI
 	return nil, repository.ErrNotFound
 }
 
+func (f *files) FindByID(_ context.Context, id bson.ObjectID) (*model.File, error) {
+	for i := range f.items {
+		if f.items[i].ID == id {
+			found := f.items[i] // kopija, kao sto i pravi repozitorijum vraca
+			return &found, nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+func (f *files) UpdateVersion(_ context.Context, file *model.File) error {
+	for i := range f.items {
+		if f.items[i].ID == file.ID {
+			f.items[i] = *file
+			return nil
+		}
+	}
+	return repository.ErrNotFound
+}
+func (f *files) RenameFile(_ context.Context, id bson.ObjectID, name string, updatedAt time.Time) error {
+	for i := range f.items {
+		if f.items[i].ID == id {
+			f.items[i].Name, f.items[i].UpdatedAt = name, updatedAt
+			return nil
+		}
+	}
+	return repository.ErrNotFound
+}
 func (f *files) Create(_ context.Context, file *model.File) error {
 	f.items = append(f.items, *file)
 	return nil
@@ -79,8 +109,12 @@ func (m *memStore) Put(_ context.Context, key string, r io.Reader, _ int64, _ st
 	return err
 }
 
-func (m *memStore) Get(context.Context, string) (io.ReadCloser, error) {
-	return nil, nil
+func (m *memStore) Get(_ context.Context, key string) (io.ReadCloser, error) {
+	content, ok := m.objects[key]
+	if !ok {
+		return nil, storage.ErrNotFound
+	}
+	return io.NopCloser(bytes.NewReader(content)), nil
 }
 
 func (m *memStore) Delete(_ context.Context, key string) error {
@@ -88,13 +122,28 @@ func (m *memStore) Delete(_ context.Context, key string) error {
 	return nil
 }
 
+// quota je fake Users servis: uvek kaze koliko je prostora ostalo.
+type quota struct{ available int64 }
+
+func (q quota) Quota(context.Context, string) (users.Quota, error) {
+	return users.Quota{StorageQuota: q.available, AvailableStorage: q.available}, nil
+}
+
+func (q quota) AddUsedStorage(context.Context, string, int64) error { return nil }
+
 // newServer sklapa isti lanac kao cmd/main.go: CORS se preskace, ali Auth ostaje.
 func newServer(maxUpload int64) (http.Handler, *memStore) {
+	return newServerQuota(maxUpload, 1<<30)
+}
+
+func newServerQuota(maxUpload, available int64) (http.Handler, *memStore) {
 	store := &memStore{objects: map[string][]byte{}}
 	svc := service.NewFileService(
 		&folders{items: map[bson.ObjectID]model.Folder{}},
 		&files{},
 		store,
+		quota{available: available},
+		nil,
 	)
 
 	api := http.NewServeMux()
@@ -232,5 +281,141 @@ func TestUploadStripsPathFromFilename(t *testing.T) {
 
 	if got.Name != "slika.png" {
 		t.Fatalf("naziv %q", got.Name)
+	}
+}
+
+// Kada korisnik nema dovoljno prostora, servis vraca 507 Insufficient Storage.
+func TestUploadOverQuotaReturns507(t *testing.T) {
+	h, store := newServerQuota(1<<20, 3)
+
+	rec := post(t, h, "u1", "file", "veliko.txt", "mnogo vise od tri bajta")
+	if rec.Code != http.StatusInsufficientStorage {
+		t.Fatalf("status %d, telo: %s", rec.Code, rec.Body.String())
+	}
+	if len(store.objects) != 0 {
+		t.Fatal("sadrzaj nije smeo da dodje do storage-a")
+	}
+}
+
+// --- T-24 preko HTTP-a ---
+
+func put(t *testing.T, h http.Handler, userID, fileID, content string) *httptest.ResponseRecorder {
+	t.Helper()
+	contentType, body := multipartBody(t, "file", "nova.txt", content, "")
+	req := httptest.NewRequest(http.MethodPut, "/files/"+fileID, body)
+	req.Header.Set("Content-Type", contentType)
+	if userID != "" {
+		req.Header.Set(middleware.UserIDHeader, userID)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestNewVersionOverHTTP(t *testing.T) {
+	h, store := newServer(1 << 20)
+
+	rec := post(t, h, "u1", "file", "rad.txt", "prva")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("otpremanje: status %d", rec.Code)
+	}
+	var first model.File
+	_ = json.Unmarshal(rec.Body.Bytes(), &first)
+
+	rec = put(t, h, "u1", first.ID.Hex(), "druga verzija")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("nova verzija: status %d, telo: %s", rec.Code, rec.Body.String())
+	}
+	var second model.File
+	_ = json.Unmarshal(rec.Body.Bytes(), &second)
+	if second.Version != 2 || second.Name != "rad.txt" {
+		t.Fatalf("los odgovor: %+v", second)
+	}
+	if len(store.objects) != 1 {
+		t.Fatalf("ocekivan jedan objekat u storage-u, ima %d", len(store.objects))
+	}
+}
+
+func TestNewVersionOfMissingFileReturns404(t *testing.T) {
+	h, _ := newServer(1 << 20)
+	if rec := put(t, h, "u1", bson.NewObjectID().Hex(), "x"); rec.Code != http.StatusNotFound {
+		t.Fatalf("status %d, telo: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- tip datoteke, preimenovanje i integritet preko HTTP-a ---
+
+func TestDisallowedTypeReturns415(t *testing.T) {
+	h, store := newServer(1 << 20)
+	rec := post(t, h, "u1", "file", "stranica.html", "<!DOCTYPE html><html><script>alert(1)</script></html>")
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status %d, telo: %s", rec.Code, rec.Body.String())
+	}
+	if len(store.objects) != 0 {
+		t.Fatal("odbijen fajl ne sme da stigne do skladista")
+	}
+}
+
+func patchName(t *testing.T, h http.Handler, userID, fileID, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPatch, "/files/"+fileID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(middleware.UserIDHeader, userID)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestRenameFileOverHTTP(t *testing.T) {
+	h, _ := newServer(1 << 20)
+	rec := post(t, h, "u1", "file", "staro.txt", "sadrzaj")
+	var file model.File
+	_ = json.Unmarshal(rec.Body.Bytes(), &file)
+
+	rec = patchName(t, h, "u1", file.ID.Hex(), `{"name":"novo.txt"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, telo: %s", rec.Code, rec.Body.String())
+	}
+	var renamed model.File
+	_ = json.Unmarshal(rec.Body.Bytes(), &renamed)
+	if renamed.Name != "novo.txt" {
+		t.Fatalf("naziv %q", renamed.Name)
+	}
+
+	if rec := patchName(t, h, "u2", file.ID.Hex(), `{"name":"x.txt"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("tudja datoteka: status %d", rec.Code)
+	}
+	if rec := patchName(t, h, "u1", file.ID.Hex(), `{"name":"x.txt","folderId":"nesto"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("visak polja: status %d", rec.Code)
+	}
+}
+
+func TestVerifyOverHTTP(t *testing.T) {
+	h, store := newServer(1 << 20)
+	rec := post(t, h, "u1", "file", "a.txt", "sadrzaj")
+	var file model.File
+	_ = json.Unmarshal(rec.Body.Bytes(), &file)
+
+	verify := func() service.IntegrityResult {
+		req := httptest.NewRequest(http.MethodGet, "/files/"+file.ID.Hex()+"/verify", nil)
+		req.Header.Set(middleware.UserIDHeader, "u1")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d", rec.Code)
+		}
+		var res service.IntegrityResult
+		_ = json.Unmarshal(rec.Body.Bytes(), &res)
+		return res
+	}
+
+	if res := verify(); !res.Valid || len(res.Expected) != 64 {
+		t.Fatalf("netaknuta datoteka: %+v", res)
+	}
+	for key := range store.objects {
+		store.objects[key] = []byte("podmetnut sadrzaj")
+	}
+	if res := verify(); res.Valid {
+		t.Fatal("izmenjen sadrzaj mora pasti na proveri")
 	}
 }

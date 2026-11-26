@@ -1,10 +1,12 @@
 
 import { Routes } from '@angular/router';
 import { adminGuard } from './core/guards/admin.guard';
+import { authGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
   {
     path: '',
+    canActivate: [authGuard],
     loadComponent: () =>
       import('./layouts/drive-layout/drive-layout').then(
         (m) => m.DriveLayout
@@ -60,6 +62,41 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/auth/verify-otp/verify-otp').then(
             (m) => m.VerifyOtp
+          ),
+      },
+      {
+        path: 'change-password',
+        loadComponent: () =>
+          import('./features/auth/change-password/change-password').then(
+            (m) => m.ChangePassword,
+          ),
+      },
+      {
+        path: 'forgot-password',
+        loadComponent: () =>
+          import('./features/auth/forgot-password/forgot-password').then(
+            (m) => m.ForgotPassword,
+          ),
+      },
+      {
+        path: 'confirm-email',
+        loadComponent: () =>
+          import('./features/auth/confirm-email/confirm-email').then(
+            (m) => m.ConfirmEmail,
+          ),
+      },
+      {
+        path: 'magic-link',
+        loadComponent: () =>
+          import('./features/auth/magic-link/magic-link').then(
+            (m) => m.MagicLink,
+          ),
+      },
+      {
+        path: 'reset-password',
+        loadComponent: () =>
+          import('./features/auth/reset-password/reset-password').then(
+            (m) => m.ResetPassword,
           ),
       },
     ],

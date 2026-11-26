@@ -7,6 +7,12 @@ import (
 
 const otpLength = 6
 
+const maxOTPAttempts = 5
+
+func otpAttemptsExhausted(attempts int) bool {
+	return attempts >= maxOTPAttempts
+}
+
 func GenerateOTP() (string, error) {
 	code := make([]byte, otpLength)
 	for index := range code {

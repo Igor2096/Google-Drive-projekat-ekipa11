@@ -10,13 +10,16 @@ import (
 )
 
 type Config struct {
-	Port           string        // port na kom servis slusa
-	MongoURI       string        // npr. mongodb://mongodb:27017
-	MongoDB        string        // ime baze za files servis
-	AllowedOrigins []string      // CORS (Angular dev server dok nema gateway-a)
-	DBTimeout      time.Duration // timeout za pojedinacnu operaciju nad bazom
-	StoragePath    string        // gde se cuva sadrzaj datoteka (T-23)
-	MaxUploadSize  int64         // najveca dozvoljena velicina jednog zahteva za otpremanje
+	Port            string        // port na kom servis slusa
+	MongoURI        string        // npr. mongodb://mongodb:27017
+	MongoDB         string        // ime baze za files servis
+	AllowedOrigins  []string      // CORS (Angular dev server dok nema gateway-a)
+	DBTimeout       time.Duration // timeout za pojedinacnu operaciju nad bazom
+	StoragePath     string        // gde se cuva sadrzaj datoteka
+	MaxUploadSize   int64         // najveca dozvoljena velicina jednog zahteva za otpremanje
+	UsersServiceURL string        // adresa Users servisa (provera kvote, T-23)
+	UsersTimeout    time.Duration // koliko se ceka odgovor Users servisa
+	AllowedTypes    []string      // bela lista MIME tipova; prazno = podrazumevana lista u kodu
 }
 
 func Load() Config {
@@ -28,6 +31,11 @@ func Load() Config {
 		DBTimeout:      getDuration("DB_TIMEOUT", 5*time.Second),
 		StoragePath:    getEnv("STORAGE_PATH", "./data/files"),
 		MaxUploadSize:  getBytes("MAX_UPLOAD_SIZE", 50<<20), // 50 MB
+		// Servis-ka-servisu se ide direktno, ne kroz gateway: gateway trazi
+		// JWT korisnika, a Files servis nema korisnikov token.
+		UsersServiceURL: getEnv("USERS_SERVICE_URL", "http://localhost:8081"),
+		UsersTimeout:    getDuration("USERS_TIMEOUT", 3*time.Second),
+		AllowedTypes:    splitNonEmpty(getEnv("ALLOWED_FILE_TYPES", "")),
 	}
 }
 
@@ -54,4 +62,14 @@ func getDuration(key string, fallback time.Duration) time.Duration {
 		}
 	}
 	return fallback
+}
+
+func splitNonEmpty(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

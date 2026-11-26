@@ -17,6 +17,7 @@ import (
 	"files-service/internal/repository"
 	"files-service/internal/service"
 	"files-service/internal/storage"
+	"files-service/internal/users"
 )
 
 func main() {
@@ -44,8 +45,11 @@ func main() {
 
 	folderRepo := repository.NewFolderRepository(database, cfg.DBTimeout)
 	fileRepo := repository.NewFileRepository(database, cfg.DBTimeout)
+	usersClient := users.NewClient(cfg.UsersServiceURL, cfg.UsersTimeout)
+	log.Printf("kvota se proverava kod Users servisa na %s", cfg.UsersServiceURL)
+
 	folderSvc := service.NewFolderService(folderRepo, fileRepo)
-	fileSvc := service.NewFileService(folderRepo, fileRepo, fileStore)
+	fileSvc := service.NewFileService(folderRepo, fileRepo, fileStore, usersClient, cfg.AllowedTypes)
 
 	// Rute koje zahtevaju korisnika
 	api := http.NewServeMux()

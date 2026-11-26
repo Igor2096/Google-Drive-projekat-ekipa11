@@ -9,15 +9,19 @@ import (
 const defaultStorageQuotaBytes int64 = 1 << 30
 
 type Config struct {
-	Port                string
-	MongoURI            string
-	MongoDatabase       string
-	DefaultStorageQuota int64
-	OTPValidity         time.Duration
-	TokenValidity       time.Duration
-	EmailValidity       time.Duration
-	JWTSecret           string
-	Mail                MailConfig
+	Port                     string
+	MongoURI                 string
+	MongoDatabase            string
+	DefaultStorageQuota      int64
+	OTPValidity              time.Duration
+	TokenValidity            time.Duration
+	EmailValidity            time.Duration
+	PasswordChangeMinimumAge time.Duration
+	PasswordResetValidity    time.Duration
+	PasswordMaxAge           time.Duration
+	MagicLinkValidity        time.Duration
+	JWTSecret                string
+	Mail                     MailConfig
 }
 
 func LoadConfig() (Config, error) {
@@ -37,28 +41,63 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	passwordChangeHours, err := positiveInt64Env("PASSWORD_CHANGE_MIN_AGE_HOURS", 24)
+	if err != nil {
+		return Config{}, err
+	}
+	passwordResetMinutes, err := positiveInt64Env("PASSWORD_RESET_TTL_MINUTES", 30)
+	if err != nil {
+		return Config{}, err
+	}
+	passwordMaxAge, err := passwordMaxAgeFromEnv()
+	if err != nil {
+		return Config{}, err
+	}
+	magicLinkMinutes, err := positiveInt64Env("MAGIC_LINK_TTL_MINUTES", 15)
+	if err != nil {
+		return Config{}, err
+	}
 	smtpPort, err := positiveInt64Env("SMTP_PORT", 1025)
 	if err != nil {
 		return Config{}, err
 	}
 	return Config{
-		Port:                getEnv("PORT", "8081"),
-		MongoURI:            getEnv("MONGO_URI", "mongodb://localhost:27017"),
-		MongoDatabase:       getEnv("MONGO_DB", "google_drive"),
-		DefaultStorageQuota: quota,
-		OTPValidity:         time.Duration(otpMinutes) * time.Minute,
-		TokenValidity:       time.Duration(tokenMinutes) * time.Minute,
-		EmailValidity:       time.Duration(emailHours) * time.Hour,
-		JWTSecret:           getEnv("JWT_SECRET", "development-only-change-me"),
+		Port:                     getEnv("PORT", "8081"),
+		MongoURI:                 getEnv("MONGO_URI", "mongodb://localhost:27017"),
+		MongoDatabase:            getEnv("MONGO_DB", "google_drive"),
+		DefaultStorageQuota:      quota,
+		OTPValidity:              time.Duration(otpMinutes) * time.Minute,
+		TokenValidity:            time.Duration(tokenMinutes) * time.Minute,
+		EmailValidity:            time.Duration(emailHours) * time.Hour,
+		PasswordChangeMinimumAge: time.Duration(passwordChangeHours) * time.Hour,
+		PasswordResetValidity:    time.Duration(passwordResetMinutes) * time.Minute,
+		PasswordMaxAge:           passwordMaxAge,
+		MagicLinkValidity:        time.Duration(magicLinkMinutes) * time.Minute,
+		JWTSecret:                getEnv("JWT_SECRET", "development-only-change-me"),
 		Mail: MailConfig{
 			Host:     getEnv("SMTP_HOST", "localhost"),
 			Port:     int(smtpPort),
 			Username: getEnv("SMTP_USERNAME", ""),
 			Password: getEnv("SMTP_PASSWORD", ""),
 			From:     getEnv("SMTP_FROM", "noreply@google-drive.local"),
-			AppURL:   getEnv("APP_BASE_URL", "http://localhost:8081"),
+			AppURL:   getEnv("APP_BASE_URL", "http://localhost:4200"),
 		},
 	}, nil
+}
+
+func passwordMaxAgeFromEnv() (time.Duration, error) {
+	if getEnv("PASSWORD_MAX_AGE_MINUTES", "") != "" {
+		minutes, err := positiveInt64Env("PASSWORD_MAX_AGE_MINUTES", 1)
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(minutes) * time.Minute, nil
+	}
+	days, err := positiveInt64Env("PASSWORD_MAX_AGE_DAYS", 60)
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(days) * 24 * time.Hour, nil
 }
 
 func positiveInt64Env(key string, fallback int64) (int64, error) {

@@ -24,13 +24,19 @@ export class DriveStateService {
   }
 }
 
-/** Izvlaci poruku iz greske koju vraca Go servis ({"error": "..."}). */
+/**
+ * Izvlaci poruku iz greske. Files servis vraca {"error": "..."}, a gateway i
+ * Users servis obican tekst (npr. "Previse zahteva"), pa se pokrivaju oba.
+ */
 export function errorMessage(err: unknown): string {
   if (err instanceof HttpErrorResponse) {
-    if (err.status === 0) return 'Files servis nije dostupan. Da li je pokrenut?';
-    const body = err.error as { error?: string } | null;
-    if (body && typeof body.error === 'string') return body.error;
-    return `Greska ${err.status}`;
+    if (err.status === 0) {
+      return 'Server nije dostupan. Proveri da li radi i da li je prihvaćen sertifikat (https://localhost:8080/health).';
+    }
+    const body = err.error as { error?: string } | string | null;
+    if (typeof body === 'string' && body.trim()) return body.trim();
+    if (body && typeof body === 'object' && typeof body.error === 'string') return body.error;
+    return `Greška ${err.status}`;
   }
-  return 'Doslo je do neocekivane greske.';
+  return 'Došlo je do neočekivane greške.';
 }

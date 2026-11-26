@@ -3,6 +3,10 @@
   <h1>Dobro došao nazad!</h1>
   <p>Prijavi se na svoj nalog.</p>
 
+  @if (sessionExpired) {
+    <p class="error-message">Sesija je istekla. Prijavi se ponovo.</p>
+  }
+
   <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
     <label for="email">Email</label>
     <input
@@ -38,6 +42,9 @@
       {{ loading ? 'Prijavljivanje...' : 'Prijavi se' }}
     </button>
   </form>
+
+  <p><a routerLink="/forgot-password">Zaboravljena lozinka?</a></p>
+  <p><a routerLink="/magic-link">Prijava bez lozinke (link na email)</a></p>
 
   <p>
     Nemaš nalog?
