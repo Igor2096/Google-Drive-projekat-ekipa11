@@ -19,6 +19,7 @@ type Config struct {
 	PasswordChangeMinimumAge time.Duration
 	PasswordResetValidity    time.Duration
 	PasswordMaxAge           time.Duration
+	MagicLinkValidity        time.Duration
 	JWTSecret                string
 	Mail                     MailConfig
 }
@@ -52,6 +53,10 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	magicLinkMinutes, err := positiveInt64Env("MAGIC_LINK_TTL_MINUTES", 15)
+	if err != nil {
+		return Config{}, err
+	}
 	smtpPort, err := positiveInt64Env("SMTP_PORT", 1025)
 	if err != nil {
 		return Config{}, err
@@ -67,6 +72,7 @@ func LoadConfig() (Config, error) {
 		PasswordChangeMinimumAge: time.Duration(passwordChangeHours) * time.Hour,
 		PasswordResetValidity:    time.Duration(passwordResetMinutes) * time.Minute,
 		PasswordMaxAge:           passwordMaxAge,
+		MagicLinkValidity:        time.Duration(magicLinkMinutes) * time.Minute,
 		JWTSecret:                getEnv("JWT_SECRET", "development-only-change-me"),
 		Mail: MailConfig{
 			Host:     getEnv("SMTP_HOST", "localhost"),
@@ -74,7 +80,7 @@ func LoadConfig() (Config, error) {
 			Username: getEnv("SMTP_USERNAME", ""),
 			Password: getEnv("SMTP_PASSWORD", ""),
 			From:     getEnv("SMTP_FROM", "noreply@google-drive.local"),
-			AppURL:   getEnv("APP_BASE_URL", "http://localhost:8081"),
+			AppURL:   getEnv("APP_BASE_URL", "http://localhost:4200"),
 		},
 	}, nil
 }

@@ -25,6 +25,9 @@ type User struct {
 	EmailVerificationExpiresAt *time.Time         `bson:"email_verification_expires_at,omitempty" json:"-"`
 	OTPHash                    string             `bson:"otp_hash,omitempty" json:"-"`
 	OTPExpiresAt               *time.Time         `bson:"otp_expires_at,omitempty" json:"-"`
+	OTPAttempts                int                `bson:"otp_attempts,omitempty" json:"-"`
+	MagicLinkTokenHash         string             `bson:"magic_link_token_hash,omitempty" json:"-"`
+	MagicLinkExpiresAt         *time.Time         `bson:"magic_link_expires_at,omitempty" json:"-"`
 	CreatedAt                  time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt                  time.Time          `bson:"updated_at" json:"updated_at"`
 }
