@@ -1,3 +1,4 @@
+
 services:
   mongodb:
     image: mongo:8
@@ -26,8 +27,8 @@ services:
       context: ./backend/users-service
       dockerfile: Dockerfile
     container_name: google-drive-users-service
-    ports:
-      - "${USERS_SERVICE_PORT}:8081"
+    expose:
+      - "8081"
     environment:
       PORT: 8081
       MONGO_URI: mongodb://mongodb:27017
@@ -50,6 +51,7 @@ services:
     depends_on:
       - mongodb
       - mailpit
+
   files-service:
     build: ./backend/files-service
     container_name: google-drive-files-service
@@ -69,7 +71,6 @@ services:
       - mongodb
       - users-service
 
-  
   api-gateway:
     build:
       context: ./backend/api-gateway
@@ -84,7 +85,6 @@ services:
       NOTIFICATIONS_SERVICE_URL: http://notifications-service:8083
       JWT_SECRET: ${JWT_SECRET}
 
- 
   notifications-service:
     build:
       context: ./backend/notifications-service

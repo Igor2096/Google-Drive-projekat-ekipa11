@@ -1,5 +1,6 @@
 
 import { Routes } from '@angular/router';
+import { adminGuard } from './core/guards/admin.guard';
 
 export const routes: Routes = [
   {
@@ -20,6 +21,21 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/drive/drive-page').then((m) => m.DrivePage),
       },
+      {
+        path: 'quota-request',
+        loadComponent: () =>
+          import('./features/quota/quota-request/quota-request').then(
+            (m) => m.QuotaRequest
+          ),
+      },
+      {
+        path: 'admin',
+        canActivate: [adminGuard],
+        loadComponent: () =>
+          import('./features/admin/admin-page/admin-page').then(
+      (m) => m.AdminPage
+    ),
+},
     ],
   },
   {

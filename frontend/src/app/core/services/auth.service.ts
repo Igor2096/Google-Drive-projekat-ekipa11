@@ -51,6 +51,42 @@ export class AuthService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = environment.usersApiUrl;
 
+
+  getToken(): string | null {
+    return sessionStorage.getItem('accessToken');
+  }
+
+  isAuthenticated(): boolean {
+    return !!this.getToken();
+  }
+
+  getUserRole(): string | null {
+    const token = this.getToken();
+
+    if (!token) {
+      return null;
+    }
+
+    try {
+      const payload = token.split('.')[1];
+      const normalizedPayload = payload
+        .replace(/-/g, '+')
+        .replace(/_/g, '/');
+
+      const decoded = atob(normalizedPayload);
+      const claims = JSON.parse(decoded);
+
+      return claims.role || null;
+    } catch {
+      return null;
+    }
+  }
+
+  isAdmin(): boolean {
+    return this.getUserRole() === 'admin';
+  }
+
+
   register(data: RegisterRequest): Observable<unknown> {
     return this.http.post(`${this.baseUrl}/register`, data);
   }
